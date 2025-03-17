@@ -4,9 +4,43 @@ interface GeocodingResult {
   error?: string;
 }
 
+// Cache to avoid repeated geocoding requests
 const GEOCODING_CACHE: Record<string, GeocodingResult> = {};
 
+// Create a function to format the address for geocoding
+function formatAddress(
+  street?: string,
+  city?: string,
+  state?: string,
+  zip?: string,
+  country?: string
+): string {
+  const parts = [];
+  if (street) parts.push(street);
+  if (city) parts.push(city);
+  if (state) parts.push(state);
+  if (zip) parts.push(zip);
+  if (country) parts.push(country);
+  return parts.join(', ');
+}
+
+// Geocode a complete address
+export async function geocodeContact(
+  street?: string,
+  city?: string,
+  state?: string,
+  zip?: string,
+  country?: string
+): Promise<GeocodingResult> {
+  const formattedAddress = formatAddress(street, city, state, zip, country);
+  return geocodeAddress(formattedAddress);
+}
+
 export async function geocodeAddress(address: string): Promise<GeocodingResult> {
+  if (!address || address.trim() === '') {
+    return { latitude: null, longitude: null, error: 'No address provided' };
+  }
+
   // Check cache first
   if (GEOCODING_CACHE[address]) {
     return GEOCODING_CACHE[address];

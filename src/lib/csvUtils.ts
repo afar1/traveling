@@ -20,29 +20,27 @@ export function parseCSV(file: File): Promise<CSVParseResult> {
         const row = results.data as Record<string, string>;
         
         // Validate required fields
-        if (!row.name || !row.address || !row.company) {
-          errors.push(`Row ${rowIndex} is missing required fields`);
+        if (!row['First Name'] || !row['Last Name']) {
+          errors.push(`Row ${rowIndex} is missing required fields (First Name, Last Name)`);
           return;
-        }
-        
-        // Extract city if not provided but present in address
-        let city = row.city || '';
-        if (!city && row.address) {
-          // Simple city extraction logic - could be improved
-          const addressParts = row.address.split(',');
-          if (addressParts.length > 1) {
-            city = addressParts[addressParts.length - 2].trim();
-          }
         }
         
         // Create contact object
         const contact: ContactInsert = {
-          name: row.name,
-          address: row.address,
-          company: row.company,
-          city: city,
-          latitude: row.latitude ? parseFloat(row.latitude) : null,
-          longitude: row.longitude ? parseFloat(row.longitude) : null,
+          first_name: row['First Name'],
+          last_name: row['Last Name'],
+          account_name: row['Account Name'] || '',
+          title: row['Title'] || '',
+          mailing_street: row['Mailing Street'] || '',
+          mailing_city: row['Mailing City'] || '',
+          mailing_state: row['Mailing State/Province (text only)'] || '',
+          mailing_zip: row['Mailing Zip/Postal Code'] || '',
+          mailing_country: row['Mailing Country (text only)'] || '',
+          phone: row['Phone'] || '',
+          email: row['Email'] || '',
+          opportunity_owner: row['Opportunity Owner'] || '',
+          latitude: null,
+          longitude: null,
         };
         
         contacts.push(contact);

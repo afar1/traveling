@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { geocodeAddress } from '@/lib/geocoding';
+import { geocodeContact } from '@/lib/geocoding';
 import { ContactInsert } from '@/types/supabase';
 
 export async function POST(request: NextRequest) {
@@ -21,35 +21,56 @@ export async function POST(request: NextRequest) {
       errors: [] as string[],
     };
 
+    // Clear existing contacts
+    const { error: deleteError } = await supabase
+      .from('contacts')
+      .delete()
+      .is('id', 'not.null');
+      
+    if (deleteError) {
+      console.error('Error clearing contacts:', deleteError);
+      results.errors.push(`Error clearing existing contacts: ${deleteError.message}`);
+    }
+
     // Process each contact
     for (const contact of contacts) {
       try {
-        // Geocode the address if coordinates are not provided
+        // Geocode the address if not already geocoded
         if (!contact.latitude || !contact.longitude) {
-          const geocodeResult = await geocodeAddress(contact.address);
+          const geocodeResult = await geocodeContact(
+            contact.mailing_street,
+            contact.mailing_city,
+            contact.mailing_state,
+            contact.mailing_zip,
+            contact.mailing_country
+          );
+          
           contact.latitude = geocodeResult.latitude;
           contact.longitude = geocodeResult.longitude;
           
           if (geocodeResult.error) {
-            console.warn(`Geocoding warning for "${contact.address}": ${geocodeResult.error}`);
+            console.warn(`Geocoding warning for "${contact.first_name} ${contact.last_name}": ${geocodeResult.error}`);
           }
         }
 
-        // Insert contact into database
+        // Insert contact into database using upsert
+        // If there's a duplicate based on first_name + last_name, it will update
         const { error } = await supabase
           .from('contacts')
-          .insert(contact);
+          .upsert(contact, {
+            onConflict: 'first_name,last_name'
+          });
 
         if (error) {
           results.failed++;
-          results.errors.push(`Failed to insert contact "${contact.name}": ${error.message}`);
+          results.errors.push(`Failed to insert contact "${contact.first_name} ${contact.last_name}": ${error.message}`);
         } else {
           results.successful++;
         }
       } catch (error) {
         results.failed++;
         results.errors.push(
-          `Error processing contact "${contact.name}": ${error instanceof Error ? error.message : 'Unknown error'}`
+          `Error processing contact "${contact.first_name} ${contact.last_name}": ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
     }

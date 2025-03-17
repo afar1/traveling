@@ -1,7 +1,7 @@
--- Create extension for UUID generation
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Drop the existing contacts table
+DROP TABLE IF EXISTS "contacts";
 
--- Create contacts table
+-- Create contacts table with new schema
 CREATE TABLE IF NOT EXISTS "contacts" (
   "id" UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   "first_name" TEXT NOT NULL,
@@ -33,4 +33,4 @@ ALTER TABLE "contacts" ENABLE ROW LEVEL SECURITY;
 -- This can be restricted later when authentication is implemented
 CREATE POLICY "Allow all operations on contacts" ON "contacts"
   USING (true)
-  WITH CHECK (true); 
+  WITH CHECK (true);

@@ -12,10 +12,18 @@ export interface Database {
 
 export interface Contact {
   id: string;
-  name: string;
-  address: string;
-  company: string;
-  city: string;
+  first_name: string;
+  last_name: string;
+  account_name?: string;
+  title?: string;
+  mailing_street?: string;
+  mailing_city?: string;
+  mailing_state?: string;
+  mailing_zip?: string;
+  mailing_country?: string;
+  phone?: string;
+  email?: string;
+  opportunity_owner?: string;
   latitude: number | null;
   longitude: number | null;
   created_at: string;
@@ -23,10 +31,18 @@ export interface Contact {
 
 export interface ContactInsert {
   id?: string;
-  name: string;
-  address: string;
-  company: string;
-  city: string;
+  first_name: string;
+  last_name: string;
+  account_name?: string;
+  title?: string;
+  mailing_street?: string;
+  mailing_city?: string;
+  mailing_state?: string;
+  mailing_zip?: string;
+  mailing_country?: string;
+  phone?: string;
+  email?: string;
+  opportunity_owner?: string;
   latitude?: number | null;
   longitude?: number | null;
   created_at?: string;

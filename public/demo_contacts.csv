@@ -1,11 +1,11 @@
-name,address,company,city,latitude,longitude
-John Doe,123 Main St Suite 101 San Francisco CA 94105,Acme Inc,San Francisco,37.7897967,-122.3982773
-Jane Smith,456 Broadway New York NY 10013,Tech Co,New York,40.7189307,-74.0025165
-Robert Johnson,789 Peachtree St NE Atlanta GA 30308,Southern Company,Atlanta,33.7748275,-84.3880976
-Maria Garcia,555 Market St San Francisco CA 94105,Cloud Solutions,San Francisco,37.7895174,-122.3994407
-James Wilson,1600 Amphitheatre Parkway Mountain View CA 94043,Tech Giant,Mountain View,37.4223878,-122.0841877
-Sarah Miller,350 5th Ave New York NY 10118,Fashion Group,New York,40.7484445,-73.9878531
-Michael Chen,901 Cherry Ave San Bruno CA 94066,Video Platform,San Bruno,37.6281972,-122.4258502
-Emily Davis,12 S Michigan Ave Chicago IL 60603,Midwest Banking,Chicago,41.8813694,-87.6246638
-David Brown,1 Ferry Building San Francisco CA 94111,Food Distributors,San Francisco,37.7955996,-122.3934143
-Lisa Wilson,151 O'Connor St Ottawa ON K2P 2L8,Canadian Tech,Ottawa,45.4208777,-75.6901106 
+Account Name,First Name,Last Name,Title,Mailing Street,Mailing City,Mailing State/Province (text only),Mailing Zip/Postal Code,Mailing Country (text only),Phone,Email,Opportunity Owner
+Acme Inc,John,Doe,CEO,123 Main St Suite 101,San Francisco,CA,94105,USA,555-123-4567,john.doe@acme.com,Alex Johnson
+Tech Co,Jane,Smith,CTO,456 Broadway,New York,NY,10013,USA,555-234-5678,jane.smith@techco.com,Sarah Williams
+Southern Company,Robert,Johnson,VP Sales,789 Peachtree St NE,Atlanta,GA,30308,USA,555-345-6789,robert.j@southern.com,Michael Chen
+Cloud Solutions,Maria,Garcia,Director,555 Market St,San Francisco,CA,94105,USA,555-456-7890,maria@cloudsolutions.com,David Brown
+Tech Giant,James,Wilson,Engineer,1600 Amphitheatre Parkway,Mountain View,CA,94043,USA,555-567-8901,james.wilson@techgiant.com,Lisa Davis
+Fashion Group,Sarah,Miller,Designer,350 5th Ave,New York,NY,10118,USA,555-678-9012,sarah@fashiongroup.com,John Smith
+Video Platform,Michael,Chen,Product Manager,901 Cherry Ave,San Bruno,CA,94066,USA,555-789-0123,michael.chen@videoplatform.com,Emily Wilson
+Midwest Banking,Emily,Davis,Financial Advisor,12 S Michigan Ave,Chicago,IL,60603,USA,555-890-1234,emily.davis@midwestbanking.com,Robert Taylor
+Food Distributors,David,Brown,Operations Director,1 Ferry Building,San Francisco,CA,94111,USA,555-901-2345,david@fooddist.com,Maria Rodriguez
+Canadian Tech,Lisa,Wilson,Marketing Manager,151 O'Connor St,Ottawa,ON,K2P 2L8,Canada,555-012-3456,lisa.wilson@canadiantech.com,James Adams 

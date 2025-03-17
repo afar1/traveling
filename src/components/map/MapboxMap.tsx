@@ -38,7 +38,7 @@ export default function MapboxMap({ contacts, selectedCity }: MapboxMapProps) {
     // If filtering by city, center on the first contact in that city
     if (selectedCity && validContacts.length > 0) {
       const cityContacts = validContacts.filter(
-        (contact) => contact.city.toLowerCase().includes(selectedCity.toLowerCase())
+        (contact) => contact.mailing_city?.toLowerCase().includes(selectedCity.toLowerCase())
       );
       
       if (cityContacts.length > 0 && cityContacts[0].longitude && cityContacts[0].latitude) {
@@ -153,16 +153,23 @@ export default function MapboxMap({ contacts, selectedCity }: MapboxMapProps) {
       el.style.border = '2px solid white';
       el.style.boxShadow = '0 0 3px rgba(0,0,0,0.3)';
       
+      // Format full name
+      const fullName = `${contact.first_name} ${contact.last_name}`;
+      
       // Create popup
       const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
         <div class="text-center p-1">
           <div class="inline-flex items-center justify-center w-10 h-10 bg-blue-100 text-blue-600 rounded-full mb-2">
-            ${contact.name.slice(0, 1).toUpperCase()}
+            ${contact.first_name.slice(0, 1).toUpperCase()}${contact.last_name.slice(0, 1).toUpperCase()}
           </div>
-          <h3 class="font-semibold text-sm">${contact.name}</h3>
-          <p class="text-gray-600 text-xs">${contact.company}</p>
-          <p class="text-gray-500 text-xs mt-1">${contact.address}</p>
-          <p class="text-gray-500 text-xs">${contact.city}</p>
+          <h3 class="font-semibold text-sm">${fullName}</h3>
+          ${contact.title ? `<p class="text-gray-600 text-xs">${contact.title}</p>` : ''}
+          ${contact.account_name ? `<p class="text-gray-600 text-xs">${contact.account_name}</p>` : ''}
+          <div class="text-gray-500 text-xs mt-1">
+            ${contact.mailing_street ? `<p>${contact.mailing_street}</p>` : ''}
+            ${contact.mailing_city ? `<p>${contact.mailing_city}${contact.mailing_state ? `, ${contact.mailing_state}` : ''} ${contact.mailing_zip || ''}</p>` : ''}
+            ${contact.mailing_country ? `<p>${contact.mailing_country}</p>` : ''}
+          </div>
         </div>
       `);
       
