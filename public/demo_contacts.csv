@@ -1,0 +1,11 @@
+name,address,company,city,latitude,longitude
+John Doe,123 Main St Suite 101 San Francisco CA 94105,Acme Inc,San Francisco,37.7897967,-122.3982773
+Jane Smith,456 Broadway New York NY 10013,Tech Co,New York,40.7189307,-74.0025165
+Robert Johnson,789 Peachtree St NE Atlanta GA 30308,Southern Company,Atlanta,33.7748275,-84.3880976
+Maria Garcia,555 Market St San Francisco CA 94105,Cloud Solutions,San Francisco,37.7895174,-122.3994407
+James Wilson,1600 Amphitheatre Parkway Mountain View CA 94043,Tech Giant,Mountain View,37.4223878,-122.0841877
+Sarah Miller,350 5th Ave New York NY 10118,Fashion Group,New York,40.7484445,-73.9878531
+Michael Chen,901 Cherry Ave San Bruno CA 94066,Video Platform,San Bruno,37.6281972,-122.4258502
+Emily Davis,12 S Michigan Ave Chicago IL 60603,Midwest Banking,Chicago,41.8813694,-87.6246638
+David Brown,1 Ferry Building San Francisco CA 94111,Food Distributors,San Francisco,37.7955996,-122.3934143
+Lisa Wilson,151 O'Connor St Ottawa ON K2P 2L8,Canadian Tech,Ottawa,45.4208777,-75.6901106 
