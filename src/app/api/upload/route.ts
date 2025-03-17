@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
     const contacts: ContactInsert[] = data.contacts;
+    const warnings: string[] = data.warnings || [];
     
     if (!contacts || !Array.isArray(contacts) || contacts.length === 0) {
       return NextResponse.json(
@@ -19,6 +20,7 @@ export async function POST(request: NextRequest) {
       successful: 0,
       failed: 0,
       errors: [] as string[],
+      warnings: [...warnings], // Include warnings from CSV parsing
     };
 
     // Clear existing contacts
@@ -50,6 +52,7 @@ export async function POST(request: NextRequest) {
           
           if (geocodeResult.error) {
             console.warn(`Geocoding warning for "${contact.first_name} ${contact.last_name}": ${geocodeResult.error}`);
+            results.warnings.push(`Geocoding warning for "${contact.first_name} ${contact.last_name}": ${geocodeResult.error}`);
           }
         }
 
@@ -76,7 +79,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      message: `Processed ${contacts.length} contacts: ${results.successful} successful, ${results.failed} failed`,
+      message: `Processed ${contacts.length} contacts: ${results.successful} successful, ${results.failed} failed, ${results.warnings.length} warnings`,
       results
     });
   } catch (error) {

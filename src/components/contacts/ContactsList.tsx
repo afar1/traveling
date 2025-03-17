@@ -18,7 +18,7 @@ export default function ContactsList({
   const [searchTerm, setSearchTerm] = useState(selectedCity || '');
   
   // Extract unique cities for the dropdown
-  const cities = Array.from(new Set(contacts.map((contact) => contact.city)))
+  const cities = Array.from(new Set(contacts.map((contact) => contact.mailing_city)))
     .filter(Boolean)
     .sort();
 
@@ -27,7 +27,7 @@ export default function ContactsList({
     if (selectedCity) {
       setFilteredContacts(
         contacts.filter((contact) =>
-          contact.city.toLowerCase().includes(selectedCity.toLowerCase())
+          contact.mailing_city?.toLowerCase().includes(selectedCity.toLowerCase())
         )
       );
       setSearchTerm(selectedCity);
@@ -62,6 +62,27 @@ export default function ContactsList({
   const handleClearFilter = () => {
     setSearchTerm('');
     onCitySelect('');
+  };
+
+  // Get contact full name
+  const getFullName = (contact: Contact) => {
+    return `${contact.first_name} ${contact.last_name}`;
+  };
+
+  // Format address
+  const formatAddress = (contact: Contact) => {
+    const parts = [];
+    if (contact.mailing_street) parts.push(contact.mailing_street);
+    if (contact.mailing_city) {
+      let cityPart = contact.mailing_city;
+      if (contact.mailing_state) cityPart += `, ${contact.mailing_state}`;
+      if (contact.mailing_zip) cityPart += ` ${contact.mailing_zip}`;
+      parts.push(cityPart);
+    }
+    if (contact.mailing_country && !parts.includes(contact.mailing_country)) {
+      parts.push(contact.mailing_country);
+    }
+    return parts.join(', ');
   };
 
   return (
@@ -111,19 +132,24 @@ export default function ContactsList({
           {filteredContacts.length > 0 ? (
             filteredContacts.map((contact) => (
               <div key={contact.id} className="p-3 hover:bg-gray-50">
-                <div className="font-medium">{contact.name}</div>
-                <div className="text-sm text-gray-600">{contact.company}</div>
-                <div className="text-xs text-gray-500 mt-1 truncate" title={contact.address}>
-                  {contact.address}
+                <div className="font-medium">{getFullName(contact)}</div>
+                <div className="text-sm text-gray-600">
+                  {contact.title && <span className="mr-1">{contact.title},</span>}
+                  {contact.account_name}
                 </div>
-                <div className="text-xs text-blue-600 mt-1">
-                  <button
-                    className="hover:underline"
-                    onClick={() => onCitySelect(contact.city)}
-                  >
-                    {contact.city}
-                  </button>
+                <div className="text-xs text-gray-500 mt-1 truncate" title={formatAddress(contact)}>
+                  {formatAddress(contact)}
                 </div>
+                {contact.mailing_city && (
+                  <div className="text-xs text-blue-600 mt-1">
+                    <button
+                      className="hover:underline"
+                      onClick={() => onCitySelect(contact.mailing_city || '')}
+                    >
+                      {contact.mailing_city}
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           ) : (

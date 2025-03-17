@@ -4,12 +4,14 @@ import { ContactInsert } from '@/types/supabase';
 interface CSVParseResult {
   contacts: ContactInsert[];
   errors: string[];
+  warnings: string[];
 }
 
 export function parseCSV(file: File): Promise<CSVParseResult> {
   return new Promise((resolve) => {
     const contacts: ContactInsert[] = [];
     const errors: string[] = [];
+    const warnings: string[] = [];
     let rowIndex = 0;
     
     Papa.parse(file, {
@@ -19,16 +21,15 @@ export function parseCSV(file: File): Promise<CSVParseResult> {
         rowIndex++;
         const row = results.data as Record<string, string>;
         
-        // Validate required fields
+        // Check for required fields but continue processing
         if (!row['First Name'] || !row['Last Name']) {
-          errors.push(`Row ${rowIndex} is missing required fields (First Name, Last Name)`);
-          return;
+          warnings.push(`Row ${rowIndex} is missing required fields (First Name, Last Name)`);
         }
         
-        // Create contact object
+        // Create contact object with fallbacks for missing required fields
         const contact: ContactInsert = {
-          first_name: row['First Name'],
-          last_name: row['Last Name'],
+          first_name: row['First Name'] || `Unknown-${rowIndex}`,
+          last_name: row['Last Name'] || `Contact-${rowIndex}`,
           account_name: row['Account Name'] || '',
           title: row['Title'] || '',
           mailing_street: row['Mailing Street'] || '',
@@ -46,11 +47,11 @@ export function parseCSV(file: File): Promise<CSVParseResult> {
         contacts.push(contact);
       },
       complete: () => {
-        resolve({ contacts, errors });
+        resolve({ contacts, errors, warnings });
       },
       error: (error) => {
         errors.push(`CSV parsing error: ${error.message}`);
-        resolve({ contacts, errors });
+        resolve({ contacts, errors, warnings });
       }
     });
   });

@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { parseCSV } from '@/lib/csvUtils';
 
 interface CSVUploaderProps {
-  onUploadComplete: (results: { successful: number; failed: number; errors: string[] }) => void;
+  onUploadComplete: (results: { successful: number; failed: number; errors: string[]; warnings: string[] }) => void;
   onUploadStart: () => void;
 }
 
@@ -13,6 +13,7 @@ export default function CSVUploader({ onUploadComplete, onUploadStart }: CSVUplo
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -39,6 +40,7 @@ export default function CSVUploader({ onUploadComplete, onUploadStart }: CSVUplo
 
     setIsUploading(true);
     setErrors([]);
+    setWarnings([]);
     onUploadStart();
     setUploadProgress(10);
 
@@ -59,13 +61,21 @@ export default function CSVUploader({ onUploadComplete, onUploadStart }: CSVUplo
         return;
       }
 
+      // Collect warnings but continue with upload
+      if (parseResult.warnings && parseResult.warnings.length > 0) {
+        setWarnings(parseResult.warnings);
+      }
+
       // Upload contacts to API
       const response = await fetch('/api/upload', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ contacts: parseResult.contacts }),
+        body: JSON.stringify({ 
+          contacts: parseResult.contacts,
+          warnings: parseResult.warnings || []
+        }),
       });
 
       setUploadProgress(90);
@@ -76,6 +86,11 @@ export default function CSVUploader({ onUploadComplete, onUploadStart }: CSVUplo
         setErrors([data.error || 'Failed to upload contacts']);
         setIsUploading(false);
         return;
+      }
+
+      // Add any new warnings from the API
+      if (data.results && data.results.warnings) {
+        setWarnings(prevWarnings => [...prevWarnings, ...data.results.warnings]);
       }
 
       setUploadProgress(100);
@@ -170,6 +185,18 @@ export default function CSVUploader({ onUploadComplete, onUploadStart }: CSVUplo
             ></div>
           </div>
           <p className="text-sm text-gray-500 mt-1 text-center">Processing contacts...</p>
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+          <h3 className="text-sm font-medium text-yellow-800">Warnings</h3>
+          <p className="text-xs text-yellow-700 mt-1">These issues were encountered but contacts were still processed:</p>
+          <ul className="mt-2 text-sm text-yellow-700 list-disc list-inside max-h-32 overflow-y-auto">
+            {warnings.map((warning, index) => (
+              <li key={index}>{warning}</li>
+            ))}
+          </ul>
         </div>
       )}
 

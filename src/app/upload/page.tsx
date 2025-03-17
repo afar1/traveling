@@ -9,6 +9,7 @@ export default function UploadPage() {
     successful: number;
     failed: number;
     errors: string[];
+    warnings: string[];
   } | null>(null);
 
   const handleUploadStart = () => {
@@ -19,6 +20,7 @@ export default function UploadPage() {
     successful: number;
     failed: number;
     errors: string[];
+    warnings: string[];
   }) => {
     setUploadStatus(results);
   };
@@ -88,68 +90,101 @@ export default function UploadPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   <tr>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      name
+                      First Name
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       Yes
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      Contact&apos;s full name
+                      Contact&apos;s first name
                     </td>
                   </tr>
                   <tr>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      address
+                      Last Name
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       Yes
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      Full address
+                      Contact&apos;s last name
                     </td>
                   </tr>
                   <tr>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      company
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      Yes
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      Company name
-                    </td>
-                  </tr>
-                  <tr>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      city
+                      Account Name
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       Recommended
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      City name (will be extracted from address if not provided)
+                      Company or account name
                     </td>
                   </tr>
                   <tr>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      latitude
+                      Title
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       Optional
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      Latitude coordinate (will be geocoded if not provided)
+                      Contact&apos;s job title
                     </td>
                   </tr>
                   <tr>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      longitude
+                      Mailing Street
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      Optional
+                      Recommended
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      Longitude coordinate (will be geocoded if not provided)
+                      Street address
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      Mailing City
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      Recommended
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      City name
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      Mailing State/Province (text only)
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      Recommended
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      State or province
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      Mailing Zip/Postal Code
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      Recommended
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      Postal or ZIP code
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      Mailing Country (text only)
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      Recommended
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      Country name
                     </td>
                   </tr>
                 </tbody>
@@ -181,7 +216,26 @@ export default function UploadPage() {
                     Failed to add {uploadStatus.failed} contacts.
                   </span>
                 )}
+                {uploadStatus.warnings && uploadStatus.warnings.length > 0 && (
+                  <span className="text-yellow-600 ml-2">
+                    {uploadStatus.warnings.length} warnings (contacts were still processed).
+                  </span>
+                )}
               </p>
+              
+              {uploadStatus.warnings && uploadStatus.warnings.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium text-yellow-800">Warnings:</h4>
+                  <ul className="mt-2 text-sm text-yellow-700 list-disc list-inside">
+                    {uploadStatus.warnings.slice(0, 5).map((warning, index) => (
+                      <li key={index}>{warning}</li>
+                    ))}
+                    {uploadStatus.warnings.length > 5 && (
+                      <li>And {uploadStatus.warnings.length - 5} more warnings...</li>
+                    )}
+                  </ul>
+                </div>
+              )}
               
               {uploadStatus.errors.length > 0 && (
                 <div className="mt-4">
