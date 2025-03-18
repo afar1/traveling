@@ -40,7 +40,6 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
   const [results, setResults] = useState<{ contacts: Contact[], cities: string[] }>({ contacts: [], cities: [] });
   const [selectedItemIndex, setSelectedItemIndex] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
-  const [searchMode, setSearchMode] = useState<'local' | 'global'>('local');
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -50,8 +49,8 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
     .map(contact => contact.mailing_city as string)
   )], [contacts]);
 
-  // Handle search - define this function only once
-  const performSearch = useCallback((term: string, mode: 'local' | 'global' = 'local') => {
+  // Handle search
+  const performSearch = useCallback((term: string) => {
     if (!term) {
       setResults({ contacts: [], cities: [] });
       setTotalItems(0);
@@ -75,20 +74,24 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
       })
       .slice(0, 5); // Limit to 5 contacts
 
-    // Search through cities (from contacts if local mode)
+    // For locations, always allow global search
     let filteredCities: string[] = [];
     
-    if (mode === 'local') {
-      // In local mode - only search cities from existing contacts
-      filteredCities = allCities
-        .filter(city => city.toLowerCase().includes(normalizedTerm))
-        .slice(0, 3); // Limit to 3 cities
-    } else {
-      // In global mode - we'll allow any search term as a potential location
-      // Just add the search term itself as a potential global search
-      if (normalizedTerm.length > 1) {
-        filteredCities = [term.trim()];
+    // Search existing cities
+    const existingCities = allCities
+      .filter(city => city.toLowerCase().includes(normalizedTerm))
+      .slice(0, 2); // Limit to 2 existing cities
+      
+    // Also allow searching for any location
+    if (normalizedTerm.length > 1) {
+      // Only add the search term if it's not already in the existing cities
+      if (!existingCities.some(city => city.toLowerCase() === normalizedTerm)) {
+        filteredCities = [...existingCities, term.trim()];
+      } else {
+        filteredCities = existingCities;
       }
+    } else {
+      filteredCities = existingCities;
     }
 
     // Calculate total items for keyboard navigation
@@ -99,17 +102,12 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
     setSelectedItemIndex(0); // Reset selection to first item
   }, [contacts, allCities]);
 
-  // Toggle global search mode
-  const toggleSearchMode = useCallback(() => {
-    setSearchMode(prev => prev === 'local' ? 'global' : 'local');
-  }, []);
-
-  // Run search when term or mode changes
+  // Run search when term changes
   useEffect(() => {
     if (searchTerm.trim().length > 0) {
-      performSearch(searchTerm, searchMode);
+      performSearch(searchTerm);
     }
-  }, [searchTerm, searchMode, performSearch]);
+  }, [searchTerm, performSearch]);
 
   // Keyboard listener for cmd+k
   useEffect(() => {
@@ -162,9 +160,6 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
       setSelectedItemIndex(prev => (prev - 1 + totalItems) % totalItems);
     } else if (e.key === 'Enter' && totalItems > 0) {
       handleSelectItem(selectedItemIndex);
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      toggleSearchMode();
     }
   };
 
@@ -203,23 +198,13 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
             <input
               ref={inputRef}
               type="text"
-              placeholder={searchMode === 'local' ? "Search contacts and cities..." : "Search anywhere in the world..."}
+              placeholder="Search contacts or any location..."
               className="w-full py-4 px-2 outline-none text-lg text-gray-900"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={handleKeyDown}
               autoFocus
             />
-            <button 
-              onClick={toggleSearchMode}
-              className={`mr-2 px-3 py-1 rounded-md text-sm font-medium border ${
-                searchMode === 'global' 
-                  ? 'bg-blue-100 text-blue-800 border-blue-300' 
-                  : 'bg-gray-100 text-gray-800 border-gray-300'
-              }`}
-            >
-              {searchMode === 'global' ? '🌎 Global' : '🏙️ Local'}
-            </button>
           </div>
 
           {/* Search results */}
@@ -249,11 +234,11 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
                 </div>
               )}
 
-              {/* Cities/Locations section */}
+              {/* Locations section */}
               {results.cities.length > 0 && (
                 <div>
                   <div className="px-4 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    {searchMode === 'global' ? 'Search Locations' : 'Cities'}
+                    Locations
                   </div>
                   {results.cities.map((city, index) => (
                     <div
@@ -264,10 +249,11 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
                       onClick={() => handleSelectItem(results.contacts.length + index)}
                     >
                       <div className="font-medium flex items-center text-gray-900">
-                        {searchMode === 'global' ? '🌎' : '📍'} {city}
-                        {searchMode === 'global' && (
+                        {/* Use different icons for existing locations vs search term */}
+                        {allCities.includes(city) ? '📍' : '🌎'} {city}
+                        {!allCities.includes(city) && (
                           <span className="ml-2 text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded-full">
-                            Global Search
+                            Search Location
                           </span>
                         )}
                       </div>
@@ -278,15 +264,7 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
             </div>
           ) : searchTerm.length > 0 ? (
             <div className="p-6 text-center text-gray-700">
-              <p>No results found{searchMode === 'local' ? '. Try global search?' : ''}</p>
-              {searchMode === 'local' && (
-                <button 
-                  onClick={toggleSearchMode}
-                  className="mt-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-md text-sm"
-                >
-                  🌎 Switch to Global Search
-                </button>
-              )}
+              <p>No results found</p>
             </div>
           ) : null}
 
@@ -301,10 +279,6 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
               <span className="inline-flex items-center mr-3">
                 <kbd className="px-1 bg-gray-100 border border-gray-300 rounded mr-1 text-gray-800">Enter</kbd>
                 to select
-              </span>
-              <span className="inline-flex items-center">
-                <kbd className="px-1 bg-gray-100 border border-gray-300 rounded mr-1 text-gray-800">Tab</kbd>
-                to toggle search mode
               </span>
             </div>
             <div>
