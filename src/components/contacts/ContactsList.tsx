@@ -7,12 +7,14 @@ interface ContactsListProps {
   contacts: Contact[];
   onCitySelect: (city: string) => void;
   selectedCity?: string;
+  onContactSelect?: (contact: Contact) => void;
 }
 
 export default function ContactsList({
   contacts,
   onCitySelect,
   selectedCity,
+  onContactSelect,
 }: ContactsListProps) {
   const [filteredContacts, setFilteredContacts] = useState<Contact[]>(contacts);
   const [searchTerm, setSearchTerm] = useState(selectedCity || '');
@@ -37,19 +39,6 @@ export default function ContactsList({
     }
   }, [selectedCity, contacts]);
 
-  // Handle search input change with debounce
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      if (searchTerm) {
-        onCitySelect(searchTerm);
-      }
-    }, 300);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [searchTerm, onCitySelect]);
-
   // Handle search form submission
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,6 +51,13 @@ export default function ContactsList({
   const handleClearFilter = () => {
     setSearchTerm('');
     onCitySelect('');
+  };
+
+  // Handle contact selection
+  const handleContactClick = (contact: Contact) => {
+    if (onContactSelect) {
+      onContactSelect(contact);
+    }
   };
 
   // Get contact full name
@@ -87,13 +83,13 @@ export default function ContactsList({
 
   return (
     <div className="w-full">
-      <div className="mb-4">
-        <form onSubmit={handleSubmit} className="flex gap-1 mb-2">
+      <div className="mb-5">
+        <form onSubmit={handleSubmit} className="flex gap-2 mb-3">
           <div className="relative flex-grow">
             <input
               type="text"
               placeholder="Search by city..."
-              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-4 py-2.5 text-base border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm bg-white text-gray-900 font-medium"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               list="city-list"
@@ -106,45 +102,60 @@ export default function ContactsList({
           </div>
           <button
             type="submit"
-            className="px-2 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="px-4 py-2.5 bg-blue-600 text-white text-base font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
           >
             Search
           </button>
         </form>
         
         {selectedCity && (
-          <button
-            type="button"
-            onClick={handleClearFilter}
-            className="text-sm text-blue-600 hover:text-blue-800 hover:underline focus:outline-none"
-          >
-            Clear filter
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="bg-gray-200 text-gray-800 px-3 py-1.5 rounded-full text-sm font-medium flex items-center">
+              {selectedCity}
+              <button
+                type="button"
+                onClick={handleClearFilter}
+                className="ml-2 text-gray-600 hover:text-gray-800 focus:outline-none"
+                aria-label="Clear filter"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
-      <div className="text-sm text-gray-500 mb-2">
+      <div className="text-sm font-medium text-gray-600 mb-3">
         {filteredContacts.length} contacts{selectedCity ? ` in "${selectedCity}"` : ''}
       </div>
 
-      <div className="border border-gray-200 rounded-md overflow-hidden bg-white">
+      <div className="border border-gray-200 rounded-md overflow-hidden bg-white shadow-sm">
         <div className="divide-y divide-gray-200 max-h-[calc(100vh-200px)] overflow-y-auto">
           {filteredContacts.length > 0 ? (
             filteredContacts.map((contact) => (
-              <div key={contact.id} className="p-3 hover:bg-gray-50">
-                <div className="font-medium">{getFullName(contact)}</div>
-                <div className="text-sm text-gray-600">
+              <div 
+                key={contact.id} 
+                className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                onClick={() => handleContactClick(contact)}
+              >
+                <div className="text-lg font-semibold text-gray-900">{getFullName(contact)}</div>
+                <div className="text-base text-gray-700 mt-1">
                   {contact.title && <span className="mr-1">{contact.title},</span>}
                   {contact.account_name}
                 </div>
-                <div className="text-xs text-gray-500 mt-1 truncate" title={formatAddress(contact)}>
+                <div className="text-sm text-gray-600 mt-2 truncate" title={formatAddress(contact)}>
                   {formatAddress(contact)}
                 </div>
                 {contact.mailing_city && (
-                  <div className="text-xs text-blue-600 mt-1">
+                  <div className="text-sm text-blue-600 mt-1 font-medium">
                     <button
                       className="hover:underline"
-                      onClick={() => onCitySelect(contact.mailing_city || '')}
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent triggering parent click
+                        onCitySelect(contact.mailing_city || '');
+                      }}
                     >
                       {contact.mailing_city}
                     </button>

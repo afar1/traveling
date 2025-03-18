@@ -13,6 +13,7 @@ export default function HomePage() {
   const [selectedCity, setSelectedCity] = useState<string>('');
   const [showSidebar, setShowSidebar] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
 
   // Set isMounted to true when component mounts (client-side only)
   useEffect(() => {
@@ -23,7 +24,7 @@ export default function HomePage() {
     // Only run on client-side
     if (!isMounted) return;
     
-    async function fetchContacts() {
+    async function fetchContacts(retryCount = 0) {
       try {
         setLoading(true);
         
@@ -35,7 +36,17 @@ export default function HomePage() {
         const response = await fetch(url);
         
         if (!response.ok) {
-          throw new Error('Failed to fetch contacts');
+          // Get error details from response if possible
+          let errorMessage = 'Failed to fetch contacts';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+          } catch {
+            // If we can't parse the error, just use the status text
+            errorMessage = `Failed to fetch contacts: ${response.status} ${response.statusText}`;
+          }
+          
+          throw new Error(errorMessage);
         }
         
         const data = await response.json();
@@ -43,7 +54,20 @@ export default function HomePage() {
         setError(null);
       } catch (err) {
         console.error('Error fetching contacts:', err);
-        setError('Failed to load contacts. Please try again later.');
+        
+        // Try up to 2 retries (3 total attempts) for network errors
+        if (retryCount < 2 && err instanceof Error && 
+            (err.message.includes('network') || err.message.includes('fetch'))) {
+          console.log(`Retrying fetch (attempt ${retryCount + 1})...`);
+          setTimeout(() => fetchContacts(retryCount + 1), 1000 * (retryCount + 1));
+          return;
+        }
+        
+        const errorMessage = err instanceof Error 
+          ? err.message 
+          : 'Failed to load contacts. Please try again later.';
+        
+        setError(errorMessage);
         setContacts([]);
       } finally {
         setLoading(false);
@@ -57,8 +81,25 @@ export default function HomePage() {
     setSelectedCity(city);
   };
 
+  const handleContactSelect = (contact: Contact) => {
+    setSelectedContact(contact);
+    
+    // Close sidebar for better map view on mobile
+    if (window.innerWidth < 768) {
+      setShowSidebar(false);
+    }
+  };
+
   const toggleSidebar = () => {
     setShowSidebar(!showSidebar);
+  };
+
+  // Function to center the map and open map view
+  const openMap = () => {
+    // If sidebar is open, close it to show the map better
+    if (showSidebar) {
+      setShowSidebar(false);
+    }
   };
 
   // Return a loading state if not mounted yet (server-side)
@@ -73,14 +114,23 @@ export default function HomePage() {
   return (
     <div className="relative">
       {/* Full-screen map */}
-      <MapboxMap contacts={contacts} selectedCity={selectedCity} />
+      <MapboxMap 
+        contacts={contacts} 
+        selectedCity={selectedCity} 
+        selectedContact={selectedContact}
+      />
       
       {/* Header */}
       <div className="fixed top-0 left-0 w-full z-10 bg-white/90 backdrop-blur-sm shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center">
-              <h1 className="text-xl font-semibold text-gray-900">Traveling CRM</h1>
+              <h1 
+                className="text-xl font-semibold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors" 
+                onClick={openMap}
+              >
+                Traveling
+              </h1>
             </div>
             <div className="flex items-center gap-4">
               <button
@@ -116,11 +166,32 @@ export default function HomePage() {
       >
         {showSidebar && (
           <>
-            <h2 className="text-lg font-medium text-gray-900 mb-4">Filter Contacts</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-5 border-b pb-2">Filter Contacts</h2>
             
             {error && (
-              <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 rounded-md">
-                <p className="text-sm text-red-700">{error}</p>
+              <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-md">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-red-800">Error loading contacts</h3>
+                    <div className="mt-2 text-sm text-red-700">
+                      <p>{error}</p>
+                    </div>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => window.location.reload()}
+                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md bg-red-100 text-red-800 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                      >
+                        Refresh page
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
             
@@ -134,6 +205,7 @@ export default function HomePage() {
                   contacts={contacts}
                   onCitySelect={handleCitySelect}
                   selectedCity={selectedCity}
+                  onContactSelect={handleContactSelect}
                 />
                 
                 {contacts.length === 0 && (
