@@ -15,6 +15,7 @@ export default function HomePage() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [visibleContacts, setVisibleContacts] = useState<Contact[]>([]);
 
   // Set isMounted to true when component mounts (client-side only)
   useEffect(() => {
@@ -108,6 +109,14 @@ export default function HomePage() {
     if (showSidebar) {
       setShowSidebar(false);
     }
+    
+    // Also reset any filters to show all contacts
+    setSelectedCity('');
+    setSelectedContact(null);
+  };
+
+  const handleViewportChange = (newVisibleContacts: Contact[]) => {
+    setVisibleContacts(newVisibleContacts);
   };
 
   // Return a loading state if not mounted yet (server-side)
@@ -126,6 +135,7 @@ export default function HomePage() {
         contacts={contacts} 
         selectedCity={selectedCity} 
         selectedContact={selectedContact}
+        onViewportChange={handleViewportChange}
       />
       
       {/* Command+K Search */}
@@ -148,6 +158,14 @@ export default function HomePage() {
               </h1>
             </div>
             <div className="flex items-center gap-4">
+              {/* Contact count badge */}
+              {visibleContacts.length > 0 && (
+                <div className="hidden md:flex items-center px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-md">
+                  <span className="font-medium">{visibleContacts.length}</span>
+                  <span className="ml-1">contacts in view</span>
+                </div>
+              )}
+              
               {/* Command+K Search Indicator */}
               <button
                 className="flex items-center px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200"
@@ -207,7 +225,14 @@ export default function HomePage() {
       >
         {showSidebar && (
           <>
-            <h2 className="text-xl font-semibold text-gray-900 mb-5 border-b pb-2">Filter Contacts</h2>
+            <div className="flex items-center justify-between border-b pb-2 mb-5">
+              <h2 className="text-xl font-semibold text-gray-900">Filter Contacts</h2>
+              {visibleContacts.length > 0 && (
+                <div className="text-sm bg-blue-100 text-blue-800 rounded-full px-2.5 py-0.5">
+                  {visibleContacts.length} in view
+                </div>
+              )}
+            </div>
             
             {error && (
               <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-md">
@@ -242,8 +267,29 @@ export default function HomePage() {
               </div>
             ) : (
               <>
+                {selectedCity && (
+                  <div className="mb-4 p-3 bg-blue-50 rounded-md flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-blue-800">
+                        Showing contacts near: <span className="font-semibold">{selectedCity}</span>
+                      </div>
+                      <div className="text-xs text-blue-600 mt-0.5">
+                        {visibleContacts.length} contacts in the current view
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setSelectedCity('')}
+                      className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                
                 <ContactsList
-                  contacts={contacts}
+                  contacts={selectedCity ? contacts : visibleContacts}
                   onCitySelect={handleCitySelect}
                   selectedCity={selectedCity}
                   onContactSelect={handleContactSelect}

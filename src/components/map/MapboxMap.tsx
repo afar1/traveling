@@ -16,15 +16,17 @@ interface MapboxMapProps {
   contacts: Contact[];
   selectedCity?: string;
   selectedContact: Contact | null;
+  onViewportChange?: (visibleContacts: Contact[]) => void;
 }
 
-export default function MapboxMap({ contacts, selectedCity, selectedContact }: MapboxMapProps) {
+export default function MapboxMap({ contacts, selectedCity, selectedContact, onViewportChange }: MapboxMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markers = useRef<mapboxgl.Marker[]>([]);
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
+  const [visibleContacts, setVisibleContacts] = useState<Contact[]>([]);
   const [debugInfo, setDebugInfo] = useState<{
     action: string;
     data?: any;
@@ -350,6 +352,12 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact }: M
         if (selectedCity && selectedCity !== lastGeocodedCity.current) {
           geocodeAndFlyToCity(selectedCity);
         }
+        
+        // Update visible contacts when the map moves
+        newMap.on('moveend', updateVisibleContacts);
+        
+        // Initial update of visible contacts
+        updateVisibleContacts();
       });
       
       // Add zoom controls
@@ -363,13 +371,50 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact }: M
     }
   };
   
+  // Function to update visible contacts based on the current viewport
+  const updateVisibleContacts = () => {
+    if (!map.current) return;
+    
+    // Get the current viewport bounds
+    const bounds = map.current.getBounds();
+    if (!bounds) {
+      console.warn('Could not get map bounds');
+      return;
+    }
+    
+    // Filter contacts that are within the bounds
+    const visible = validContacts.filter(contact => {
+      if (!contact.latitude || !contact.longitude) return false;
+      
+      return bounds.contains(new mapboxgl.LngLat(contact.longitude, contact.latitude));
+    });
+    
+    // Update state with visible contacts
+    setVisibleContacts(visible);
+    
+    // Notify parent component about visible contacts
+    if (onViewportChange) {
+      onViewportChange(visible);
+    }
+    
+    setDebugInfo({
+      action: `Updated visible contacts`,
+      data: { count: visible.length, bounds: bounds.toArray() },
+      success: true,
+      timestamp: Date.now()
+    });
+    
+    console.log(`Found ${visible.length} contacts in the current viewport`);
+  };
+  
   // Function to add markers to the map
   const addMarkers = (mapInstance: mapboxgl.Map) => {
     // Clear existing markers
     markers.current.forEach(marker => marker.remove());
     markers.current = [];
     
-    // Add markers for valid contacts
+    // Add markers for all valid contacts
+    // We'll update visibility of markers based on the viewport separately
     validContacts.forEach(contact => {
       if (!contact.latitude || !contact.longitude) return;
       
