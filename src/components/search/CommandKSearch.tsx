@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Contact } from '@/types/supabase';
 
 // USA states data
@@ -45,21 +45,12 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Extract unique cities from contacts
-  const allCities = [...new Set(contacts
+  const allCities = useMemo(() => [...new Set(contacts
     .filter(contact => contact.mailing_city)
     .map(contact => contact.mailing_city as string)
-  )];
+  )], [contacts]);
 
-  // Toggle global search mode
-  const toggleSearchMode = useCallback(() => {
-    setSearchMode(prev => prev === 'local' ? 'global' : 'local');
-    // Re-run search with current term but in new mode
-    if (searchTerm.trim().length > 0) {
-      performSearch(searchTerm, searchMode === 'local' ? 'global' : 'local');
-    }
-  }, [searchTerm, searchMode]);
-
-  // Handle search
+  // Handle search - define this function only once
   const performSearch = useCallback((term: string, mode: 'local' | 'global' = 'local') => {
     if (!term) {
       setResults({ contacts: [], cities: [] });
@@ -108,6 +99,18 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
     setSelectedItemIndex(0); // Reset selection to first item
   }, [contacts, allCities]);
 
+  // Toggle global search mode
+  const toggleSearchMode = useCallback(() => {
+    setSearchMode(prev => prev === 'local' ? 'global' : 'local');
+  }, []);
+
+  // Run search when term or mode changes
+  useEffect(() => {
+    if (searchTerm.trim().length > 0) {
+      performSearch(searchTerm, searchMode);
+    }
+  }, [searchTerm, searchMode, performSearch]);
+
   // Keyboard listener for cmd+k
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -148,11 +151,6 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isOpen]);
-
-  // Handle input change
-  useEffect(() => {
-    performSearch(searchTerm, searchMode);
-  }, [searchTerm, performSearch, searchMode]);
 
   // Handle keyboard navigation in search results
   const handleKeyDown = (e: React.KeyboardEvent) => {

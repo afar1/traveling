@@ -22,6 +22,7 @@ export default function HomePage() {
     setIsMounted(true);
   }, []);
 
+  // Fetch contacts when needed
   useEffect(() => {
     // Only run on client-side
     if (!isMounted) return;
@@ -77,6 +78,7 @@ export default function HomePage() {
     }
 
     fetchContacts();
+  // This effect should only run when selectedCity or isMounted changes
   }, [selectedCity, isMounted]);
 
   const handleCitySelect = (city: string) => {
