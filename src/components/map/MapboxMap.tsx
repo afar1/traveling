@@ -7,10 +7,19 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Get the Mapbox access token from environment variables
 // Use a hardcoded token if the environment variable isn't available
-const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiYWZhcjAxIiwiYSI6ImNtOGRpcG4zNDIybncycm9iNHhtc3g2dGsifQ.QBFYHz7yyD31BFpN5KopPQ';
+const MAPBOX_ACCESS_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1IjoiYWZhcjAxIiwiYSI6ImNtOGRpcG4zNDIybncycm9iNHhtc3g2dGsifQ.QBFYHz7yyD31BFpN5KopPQ';
 
-// Log token for debugging
-console.log('Mapbox token available:', !!MAPBOX_ACCESS_TOKEN);
+// Verify token format is valid
+const isValidToken = typeof MAPBOX_ACCESS_TOKEN === 'string' && 
+  MAPBOX_ACCESS_TOKEN.startsWith('pk.') &&
+  MAPBOX_ACCESS_TOKEN.length > 20;
+
+// Log token status for debugging
+console.log('Mapbox token available:', isValidToken);
+
+if (!isValidToken) {
+  console.warn('WARNING: Mapbox token appears to be invalid, map functionality may be limited.');
+}
 
 interface MapboxMapProps {
   contacts: Contact[];
@@ -53,6 +62,10 @@ export default function MapboxMap({
   // Geocode a city name and return coordinates
   const geocodeCity = async (city: string): Promise<[number, number] | null> => {
     try {
+      if (!isValidToken) {
+        throw new Error('Invalid Mapbox access token');
+      }
+      
       console.log(`🔍 Starting geocoding for city: "${city}"`);
       setIsGeocoding(true);
       setDebugInfo({
@@ -66,72 +79,105 @@ export default function MapboxMap({
       
       // Create the direct Mapbox API URL
       const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedCity}.json?access_token=${MAPBOX_ACCESS_TOKEN}&types=place,locality,region&country=us,ca,gb,de,fr&limit=1&fuzzyMatch=true`;
-      console.log(`📡 Geocoding API URL: ${mapboxUrl.replace(MAPBOX_ACCESS_TOKEN, 'HIDDEN_TOKEN')}`);
+      
+      // Log URL without token for security
+      const sanitizedUrl = mapboxUrl.replace(MAPBOX_ACCESS_TOKEN, 'HIDDEN_TOKEN');
+      console.log(`📡 Geocoding API URL: ${sanitizedUrl}`);
       
       try {
         // Try direct API call first
         const directResponse = await fetch(mapboxUrl);
         
-        if (directResponse.ok) {
-          const data = await directResponse.json();
-          console.log(`✅ Direct Mapbox API response:`, data);
-          
-          // Check if we got any results
-          if (data.features && data.features.length > 0) {
-            const firstResult = data.features[0];
-            const placeName = firstResult.place_name;
-            const coordinates = firstResult.center;
-            console.log(`🎯 Successfully geocoded "${city}" to: "${placeName}" at coordinates:`, coordinates);
-            
-            setDebugInfo({
-              action: `Successfully geocoded "${city}"`,
-              data: { placeName, coordinates, method: 'direct' },
-              success: true,
-              timestamp: Date.now()
-            });
-            
-            return [coordinates[0], coordinates[1]];
-          }
-        } else {
-          console.warn(`⚠️ Direct API call failed with status ${directResponse.status}, trying Next.js API route fallback`);
+        if (!directResponse.ok) {
+          const errorText = await directResponse.text();
+          console.error(`⚠️ Direct API call failed with status ${directResponse.status}: ${errorText}`);
+          throw new Error(`Mapbox API error: ${directResponse.status}`);
         }
-      } catch (directError) {
-        console.warn(`⚠️ Direct API call error:`, directError);
-        // Continue to fallback method
-      }
-      
-      // Create a local API route URL as fallback (this will handle CORS issues)
-      // This assumes you've created an API route in Next.js that proxies to Mapbox
-      const localApiUrl = `/api/geocode?city=${encodedCity}`;
-      console.log(`🔄 Trying API route fallback: ${localApiUrl}`);
-      
-      setDebugInfo({
-        action: `Trying fallback method for "${city}"`,
-        data: { url: localApiUrl },
-        success: true,
-        timestamp: Date.now()
-      });
-      
-      // If direct call failed, try through our own API endpoint
-      const response = await fetch(localApiUrl);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ Geocoding API error: Status ${response.status}`, errorText);
+        
+        const data = await directResponse.json();
+        
+        // Check if the response indicates an error
+        if (data.message && data.code) {
+          console.error(`⚠️ Mapbox API error: ${data.code} - ${data.message}`);
+          throw new Error(`Mapbox API error: ${data.message}`);
+        }
+        
+        console.log(`✅ Direct Mapbox API response:`, data);
+        
+        // Check if we got any results
+        if (!data.features || data.features.length === 0) {
+          console.warn(`⚠️ No geocoding results found for: "${city}"`);
+          setDebugInfo({
+            action: `No results for "${city}"`,
+            success: false,
+            timestamp: Date.now()
+          });
+          return null;
+        }
+        
+        const firstResult = data.features[0];
+        const placeName = firstResult.place_name;
+        const coordinates = firstResult.center;
+        console.log(`🎯 Successfully geocoded "${city}" to: "${placeName}" at coordinates:`, coordinates);
+        
         setDebugInfo({
-          action: `Geocoding error for "${city}"`,
-          data: { status: response.status, error: errorText, method: 'fallback' },
-          success: false,
+          action: `Successfully geocoded "${city}"`,
+          data: { placeName, coordinates, method: 'direct' },
+          success: true,
           timestamp: Date.now()
         });
-        throw new Error(`Geocoding error: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      console.log(`✅ Fallback API response:`, data);
-      
-      // Check if we got any results
-      if (data.features && data.features.length > 0) {
+        
+        return [coordinates[0], coordinates[1]];
+      } catch (directError) {
+        // Log the direct API error
+        console.warn(`⚠️ Direct API call error:`, directError);
+        
+        // Create a local API route URL as fallback (this will handle CORS issues)
+        const localApiUrl = `/api/geocode?city=${encodedCity}`;
+        console.log(`🔄 Trying API route fallback: ${localApiUrl}`);
+        
+        setDebugInfo({
+          action: `Trying fallback method for "${city}"`,
+          data: { url: localApiUrl },
+          success: true,
+          timestamp: Date.now()
+        });
+        
+        // If direct call failed, try through our own API endpoint
+        const response = await fetch(localApiUrl);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`❌ Geocoding API error: Status ${response.status}`, errorText);
+          setDebugInfo({
+            action: `Geocoding error for "${city}"`,
+            data: { status: response.status, error: errorText, method: 'fallback' },
+            success: false,
+            timestamp: Date.now()
+          });
+          throw new Error(`Geocoding error: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log(`✅ Fallback API response:`, data);
+        
+        // Check for API error messages
+        if (data.message && (data.code || data.statusCode)) {
+          console.error(`❌ Geocoding API error: ${data.message}`);
+          throw new Error(`Geocoding API error: ${data.message}`);
+        }
+        
+        // Check if we got any results
+        if (!data.features || data.features.length === 0) {
+          console.warn(`⚠️ No geocoding results found for: "${city}"`);
+          setDebugInfo({
+            action: `No results for "${city}"`,
+            success: false,
+            timestamp: Date.now()
+          });
+          return null;
+        }
+        
         const firstResult = data.features[0];
         const placeName = firstResult.place_name;
         const coordinates = firstResult.center;
@@ -146,14 +192,6 @@ export default function MapboxMap({
         
         return [coordinates[0], coordinates[1]];
       }
-      
-      console.warn(`⚠️ No geocoding results found for: "${city}"`);
-      setDebugInfo({
-        action: `No results for "${city}"`,
-        success: false,
-        timestamp: Date.now()
-      });
-      return null;
     } catch (err) {
       console.error('❌ Error geocoding city:', err);
       setDebugInfo({
@@ -162,6 +200,7 @@ export default function MapboxMap({
         success: false,
         timestamp: Date.now()
       });
+      setError(`Geocoding error: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     } finally {
       setIsGeocoding(false);
@@ -198,6 +237,21 @@ export default function MapboxMap({
   // Set mounted state after initial render
   useEffect(() => {
     setMounted(true);
+    
+    // Check for WebGL support
+    const checkWebGLSupport = () => {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl') || 
+                 canvas.getContext('experimental-webgl');
+      
+      return !!gl;
+    };
+    
+    // Set error if WebGL is not supported
+    if (typeof window !== 'undefined' && !checkWebGLSupport()) {
+      console.error('WebGL is not supported in this browser');
+      setError('Your browser does not support WebGL, which is required for maps. Please try using a different browser.');
+    }
   }, []);
 
   // Initialize map in a separate effect that runs after mounting
@@ -221,6 +275,13 @@ export default function MapboxMap({
     }
     
     try {
+      // Check if mapboxgl is properly loaded
+      if (typeof mapboxgl !== 'object' || !mapboxgl.Map) {
+        console.error('Mapbox GL JS library is not available');
+        setError('Map library could not be loaded. Please check your internet connection and refresh the page.');
+        return;
+      }
+      
       console.log('Initializing Mapbox with container:', mapContainer.current);
       
       // Clean up existing map if it exists
@@ -246,10 +307,28 @@ export default function MapboxMap({
         dragRotate: false,
       });
       
-      // Add error handling
-      newMap.on('error', (e) => {
+      // Add more detailed error handling
+      newMap.on('error', (e: mapboxgl.ErrorEvent) => {
         console.error('Mapbox error:', e);
-        setError('Failed to load map: ' + (e.error?.message || 'Unknown error'));
+        // Log detailed information about the error
+        if (e.error) {
+          console.error('Error details:', {
+            message: e.error.message,
+          });
+        }
+        
+        // Display a more helpful error message
+        const errorMessage = e.error?.message || 'Unknown map error';
+        setError(`Map error: ${errorMessage}`);
+        
+        // Log Mapbox access token status
+        console.log('Mapbox token valid:', !!MAPBOX_ACCESS_TOKEN);
+      });
+      
+      // Log style loading errors
+      newMap.on('style.error', (e: { error?: Error }) => {
+        console.error('Mapbox style error:', e);
+        setError(`Map style error: ${e.error?.message || 'Failed to load map style'}`);
       });
       
       // Add load event handler
@@ -495,6 +574,12 @@ export default function MapboxMap({
     async function geocodeAndFly() {
       if (!map.current || !selectedCity) return;
       
+      // Don't geocode if not a valid token
+      if (!isValidToken) {
+        setError("Cannot search for city: Invalid Mapbox access token");
+        return;
+      }
+      
       lastGeocodedCity.current = selectedCity;
       setIsGeocoding(true);
       
@@ -504,11 +589,19 @@ export default function MapboxMap({
         // Get coordinates
         const coords = await geocodeCity(selectedCity);
         
-        if (!map.current) return; // Add this check
+        // Skip if map is no longer available
+        if (!map.current) return;
         
-        if (coords) {
-          console.log(`Flying to coordinates: [${coords[0]}, ${coords[1]}]`);
-          
+        // Handle case where geocoding failed
+        if (!coords) {
+          setError(`Could not find location "${selectedCity}". Please try another city.`);
+          setTimeout(() => setError(null), 3000);
+          return;
+        }
+        
+        console.log(`Flying to coordinates: [${coords[0]}, ${coords[1]}]`);
+        
+        try {
           // Fly to the coordinates
           map.current.flyTo({
             center: coords,
@@ -532,15 +625,18 @@ export default function MapboxMap({
               removeRadiusCircle(map.current);
             }
           }
+          
+          // Update the debug info
+          setDebugInfo({
+            action: `Successfully navigated to "${selectedCity}"`,
+            data: { coordinates: coords },
+            success: true,
+            timestamp: Date.now()
+          });
+        } catch (mapError) {
+          console.error('Error navigating to coordinates:', mapError);
+          setError(`Error navigating to ${selectedCity}: ${mapError instanceof Error ? mapError.message : String(mapError)}`);
         }
-        
-        // Update the debug info
-        setDebugInfo({
-          action: `Successfully geocoded "${selectedCity}"`,
-          data: { placeName: selectedCity, coordinates: coords },
-          success: true,
-          timestamp: Date.now()
-        });
       } catch (error) {
         console.error('Error during geocoding:', error);
         setError(`Failed to find location: ${error instanceof Error ? error.message : String(error)}`);
