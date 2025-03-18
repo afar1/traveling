@@ -121,23 +121,22 @@ export default function HomePage() {
 
   // Function to order contacts based on location
   const getOrderedContacts = () => {
-    // If no city is selected, return contacts as is
-    if (!selectedCity) return contacts;
-    
-    // If we have visible contacts from the map viewport, prioritize them
+    // Always prioritize visible contacts from current viewport
     if (visibleContacts.length > 0) {
       // First: contacts that are in the current viewport
       // Second: remaining contacts
       const visibleIds = new Set(visibleContacts.map(c => c.id));
       
-      // Create a new array with visible contacts first, then others
       return [
         ...visibleContacts,
         ...contacts.filter(c => !visibleIds.has(c.id))
       ];
     }
     
-    // If no visible contacts (maybe the area has no contacts),
+    // If no city is selected or no visible contacts, return contacts as is
+    if (!selectedCity) return contacts;
+    
+    // If a city is selected but no visible contacts (maybe the area has no contacts),
     // order contacts by city name similarity
     return [...contacts].sort((a, b) => {
       const aCity = a.mailing_city?.toLowerCase() || '';
@@ -196,6 +195,11 @@ export default function HomePage() {
               >
                 Traveling
               </h1>
+              {selectedCity && (
+                <div className="ml-3 text-sm text-gray-600">
+                  <span className="font-medium text-gray-700">{selectedCity}</span> area
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-4">
               {/* Contact count badge */}

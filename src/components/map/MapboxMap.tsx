@@ -356,6 +356,9 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
         // Update visible contacts when the map moves
         newMap.on('moveend', updateVisibleContacts);
         
+        // Also update on zoom end
+        newMap.on('zoomend', updateVisibleContacts);
+        
         // Initial update of visible contacts
         updateVisibleContacts();
       });

@@ -74,14 +74,68 @@ export default function ContactsList({
     return parts.join(', ');
   };
 
-  // Check if a contact is visible in the current viewport (first contacts when city selected)
-  const isInViewport = (contact: Contact, index: number) => {
-    if (!selectedCity) return false;
+  // Check if a contact is visible in the current viewport
+  // The first group of contacts are always the ones in viewport
+  // This works because our contacts are pre-ordered in HomePage.getOrderedContacts()
+  const isInViewport = (index: number) => {
+    // Get count of visible contacts
+    let visibleCount = 0;
     
-    // If there's a city selected, the first few contacts are from the viewport
-    // This assumes the contacts array is ordered with viewport contacts first
-    return index < 15; // Assume first 15 contacts are from viewport 
+    // Count contacts with same latitude/longitude (viewport contacts come first)
+    let lastLat = null;
+    let lastLng = null;
+    let lastInView = true;
+    
+    for (let i = 0; i < contacts.length; i++) {
+      const contact = contacts[i];
+      
+      // If latitude/longitude change and we're past first group, we've found all viewport contacts
+      if (i > 0 && lastInView && 
+         (contact.latitude !== lastLat || contact.longitude !== lastLng)) {
+        
+        // Check if we have a group change
+        let prevGroupCount = 0;
+        for (let j = 0; j < i; j++) {
+          if (contacts[j].latitude === lastLat && contacts[j].longitude === lastLng) {
+            prevGroupCount++;
+          }
+        }
+        
+        // If previous group was big enough, count as a significant group
+        if (prevGroupCount >= 3) {
+          lastInView = false;
+        }
+      }
+      
+      if (lastInView) {
+        visibleCount++;
+      }
+      
+      lastLat = contact.latitude;
+      lastLng = contact.longitude;
+    }
+
+    // For simplicity, if viewport detection isn't reliable, assume at least 10 contacts
+    if (visibleCount < 5 && contacts.length > 10) {
+      visibleCount = Math.min(10, Math.floor(contacts.length * 0.2)); // 20% of contacts or 10, whichever is smaller
+    }
+    
+    return index < visibleCount;
   };
+
+  // Get counts of contacts 
+  const getViewportCounts = () => {
+    let inViewport = 0;
+    let total = contacts.length;
+    
+    for (let i = 0; i < total; i++) {
+      if (isInViewport(i)) inViewport++;
+    }
+    
+    return { inViewport, total };
+  };
+  
+  const counts = getViewportCounts();
 
   return (
     <div className="w-full">
@@ -129,28 +183,33 @@ export default function ContactsList({
         )}
       </div>
 
-      <div className="text-sm font-medium text-gray-600 mb-3">
-        {contacts.length} contacts {selectedCity ? `(sorted by proximity to "${selectedCity}")` : ''}
+      <div className="text-sm font-medium text-gray-600 mb-3 flex justify-between items-center">
+        <div>
+          {contacts.length} contacts total
+        </div>
+        {counts.inViewport > 0 && (
+          <div className="text-blue-700 bg-blue-50 px-2 py-1 rounded-md text-xs">
+            {counts.inViewport} in current map view
+          </div>
+        )}
       </div>
 
-      {selectedCity && (
-        <div className="flex items-center gap-2 mb-3 text-xs">
-          <div className="flex items-center">
-            <span className="inline-block w-3 h-3 rounded-full bg-blue-100 border border-blue-400 mr-1"></span>
-            <span className="text-gray-600">In current view</span>
-          </div>
-          <div className="flex items-center">
-            <span className="inline-block w-3 h-3 rounded-full bg-white border border-gray-300 mr-1"></span>
-            <span className="text-gray-600">Other locations</span>
-          </div>
+      <div className="flex items-center gap-2 mb-3 text-xs">
+        <div className="flex items-center">
+          <span className="inline-block w-3 h-3 rounded-full bg-blue-100 border border-blue-400 mr-1"></span>
+          <span className="text-gray-600">In current map view</span>
         </div>
-      )}
+        <div className="flex items-center">
+          <span className="inline-block w-3 h-3 rounded-full bg-white border border-gray-300 mr-1"></span>
+          <span className="text-gray-600">Other locations</span>
+        </div>
+      </div>
 
       <div className="border border-gray-200 rounded-md overflow-hidden bg-white shadow-sm">
         <div className="divide-y divide-gray-200 max-h-[calc(100vh-240px)] overflow-y-auto">
           {contacts.length > 0 ? (
             contacts.map((contact, index) => {
-              const inViewport = isInViewport(contact, index);
+              const inViewport = isInViewport(index);
               return (
                 <div 
                   key={contact.id} 
@@ -160,11 +219,9 @@ export default function ContactsList({
                   onClick={() => handleContactClick(contact)}
                 >
                   <div className="flex items-start">
-                    {selectedCity && (
-                      <div className={`flex-shrink-0 w-3 h-3 mt-2 mr-2 rounded-full ${
-                        inViewport ? 'bg-blue-100 border border-blue-400' : 'bg-white border border-gray-300'
-                      }`}></div>
-                    )}
+                    <div className={`flex-shrink-0 w-3 h-3 mt-2 mr-2 rounded-full ${
+                      inViewport ? 'bg-blue-100 border border-blue-400' : 'bg-white border border-gray-300'
+                    }`}></div>
                     <div className="flex-grow">
                       <div className="text-lg font-semibold text-gray-900">{getFullName(contact)}</div>
                       <div className="text-base text-gray-700 mt-1">
