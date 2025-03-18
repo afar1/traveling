@@ -33,9 +33,10 @@ interface MapboxMapProps {
   selectedCity?: string;
   selectedContact: Contact | null;
   onViewportChange?: (visibleContacts: Contact[]) => void;
+  onVisibleContactsChange?: (visibleContacts: Contact[]) => void;
 }
 
-export default function MapboxMap({ contacts, selectedCity, selectedContact, onViewportChange }: MapboxMapProps) {
+export default function MapboxMap({ contacts, selectedCity, selectedContact, onViewportChange, onVisibleContactsChange }: MapboxMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markers = useRef<mapboxgl.Marker[]>([]);
@@ -551,41 +552,70 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
     }
   };
   
-  // Function to update visible contacts based on the current viewport
-  const updateVisibleContacts = () => {
+  // Calculate distance between two points in kilometers (Haversine formula)
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371; // Radius of the earth in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2)
+    ; 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    const d = R * c; // Distance in km
+    return d;
+  };
+  
+  // Convert degrees to radians
+  const deg2rad = (deg: number): number => {
+    return deg * (Math.PI/180);
+  };
+
+  // Detect which contacts are visible in the current map bounds and update state
+  const updateVisibleContacts = useCallback(() => {
     if (!map.current) return;
     
-    // Get the current viewport bounds
-    const bounds = map.current.getBounds();
-    if (!bounds) {
-      console.warn('Could not get map bounds');
-      return;
-    }
-    
-    // Filter contacts that are within the bounds
-    const visible = validContacts.filter(contact => {
-      if (!contact.latitude || !contact.longitude) return false;
+    try {
+      // Get the current map bounds
+      const bounds = map.current.getBounds();
+      if (!bounds) {
+        console.warn('Could not get map bounds');
+        return;
+      }
       
-      return bounds.contains(new mapboxgl.LngLat(contact.longitude, contact.latitude));
-    });
-    
-    // Update state with visible contacts
-    setVisibleContacts(visible);
-    
-    // Notify parent component about visible contacts
-    if (onViewportChange) {
-      onViewportChange(visible);
+      // Calculate which contacts are within the current viewport
+      const visibleContacts = contacts.filter(contact => {
+        if (!contact.latitude || !contact.longitude) return false;
+        
+        return bounds.contains([contact.longitude, contact.latitude]);
+      });
+      
+      // Calculate distance from map center for sorting
+      const center = map.current.getCenter();
+      const contactsWithDistances = visibleContacts.map(contact => {
+        const distance = calculateDistance(
+          center.lat, 
+          center.lng, 
+          contact.latitude!, 
+          contact.longitude!
+        );
+        return { ...contact, distance };
+      });
+      
+      // Sort by distance from map center
+      contactsWithDistances.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+      
+      console.log(`👁️ Updated visible contacts: ${contactsWithDistances.length} contacts in view`);
+      
+      // Update the visible contacts count 
+      if (onVisibleContactsChange) {
+        onVisibleContactsChange(contactsWithDistances); 
+      }
+    } catch (err) {
+      console.error('Error updating visible contacts:', err);
     }
-    
-    setDebugInfo({
-      action: `Updated visible contacts`,
-      data: { count: visible.length, bounds: bounds.toArray() },
-      success: true,
-      timestamp: Date.now()
-    });
-    
-    console.log(`Found ${visible.length} contacts in the current viewport`);
-  };
+  }, [contacts, onVisibleContactsChange]);
   
   // Function to add markers to the map
   const addMarkers = (mapInstance: mapboxgl.Map) => {
