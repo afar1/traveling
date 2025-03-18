@@ -13,11 +13,9 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCity, setSelectedCity] = useState<string>('');
   const [showSidebar, setShowSidebar] = useState(true);
-  const [showMap, setShowMap] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [visibleContacts, setVisibleContacts] = useState<Contact[]>([]);
-  const [visibleMapContacts, setVisibleMapContacts] = useState<Contact[]>([]);
 
   // Set isMounted to true when component mounts (client-side only)
   useEffect(() => {
@@ -33,8 +31,10 @@ export default function HomePage() {
       try {
         setLoading(true);
         
-        // Always fetch all contacts, regardless of selected city
-        const url = '/api/contacts';
+        // Build URL with city query parameter if needed
+        const url = selectedCity
+          ? `/api/contacts?city=${encodeURIComponent(selectedCity)}`
+          : '/api/contacts';
         
         const response = await fetch(url);
         
@@ -53,17 +53,8 @@ export default function HomePage() {
         }
         
         const data = await response.json();
-        console.log('Contacts API response:', data); // Debug log
-        
-        if (data && data.contacts) {
-          setContacts(data.contacts);
-          console.log(`Loaded ${data.contacts.length} contacts`);
-          setError(null);
-        } else {
-          console.error('Unexpected API response format:', data);
-          setContacts([]);
-          setError('Received invalid data format from server');
-        }
+        setContacts(data.contacts || []);
+        setError(null);
       } catch (err) {
         console.error('Error fetching contacts:', err);
         
@@ -87,15 +78,19 @@ export default function HomePage() {
     }
 
     fetchContacts();
-  // This effect should only run when isMounted changes, no longer dependent on selectedCity
-  }, [isMounted]);
+  // This effect should only run when selectedCity or isMounted changes
+  }, [selectedCity, isMounted]);
 
-  // Handle city selection
   const handleCitySelect = (city: string) => {
-    console.log(`Selected city/state: ${city}`);
+    console.log(`Setting selected city/state to: "${city}"`);
     setSelectedCity(city);
-    // Reset selected contact when choosing a new city/state
-    if (selectedContact) setSelectedContact(null);
+    // Reset selected contact when selecting a city/state
+    setSelectedContact(null);
+    
+    // Close sidebar for better map view on mobile
+    if (window.innerWidth < 768) {
+      setShowSidebar(false);
+    }
   };
 
   const handleContactSelect = (contact: Contact) => {
@@ -127,101 +122,43 @@ export default function HomePage() {
     setVisibleContacts(newVisibleContacts);
   };
 
-  // Handle contacts that are visible in the current map view
-  const handleVisibleContactsChange = (visibleContacts: Contact[]) => {
-    setVisibleMapContacts(visibleContacts);
-  };
-
-  // Sidebar content - show either loading message, error, or contacts
-  const sidebarContent = () => {
-    if (loading) {
-      return <div className="p-4 text-center">Loading contacts...</div>;
+  // Function to order contacts based on location
+  const getOrderedContacts = () => {
+    // Always prioritize visible contacts from current viewport
+    if (visibleContacts.length > 0) {
+      // First: contacts that are in the current viewport
+      // Second: remaining contacts
+      const visibleIds = new Set(visibleContacts.map(c => c.id));
+      
+      return [
+        ...visibleContacts,
+        ...contacts.filter(c => !visibleIds.has(c.id))
+      ];
     }
     
-    if (error) {
-      return <div className="p-4 text-center text-red-500">{error}</div>;
-    }
+    // If no city is selected or no visible contacts, return contacts as is
+    if (!selectedCity) return contacts;
     
-    // Message to display depending on selected city
-    let statusMessage = null;
-    if (selectedCity) {
-      // Check if there are any contacts in the selected location
-      const hasContactsInLocation = contacts.some(
-        contact => 
-          (contact.mailing_city && contact.mailing_city.toLowerCase().includes(selectedCity.toLowerCase())) ||
-          (contact.mailing_state && contact.mailing_state.toLowerCase().includes(selectedCity.toLowerCase()))
-      );
+    // If a city is selected but no visible contacts (maybe the area has no contacts),
+    // order contacts by city name similarity
+    return [...contacts].sort((a, b) => {
+      const aCity = a.mailing_city?.toLowerCase() || '';
+      const bCity = b.mailing_city?.toLowerCase() || '';
+      const searchCity = selectedCity.toLowerCase();
       
-      if (hasContactsInLocation) {
-        statusMessage = (
-          <div className="bg-green-50 text-green-700 px-4 py-2 text-sm">
-            Viewing contacts near {selectedCity}
-          </div>
-        );
-      } else {
-        statusMessage = (
-          <div className="bg-blue-50 text-blue-700 px-4 py-2 text-sm">
-            No contacts found in {selectedCity}
-          </div>
-        );
-      }
-    }
-    
-    // Sort contacts by:
-    // 1. First show contacts that are visible in the current map viewport
-    // 2. Then sort by relevance to selected city (if any)
-    // 3. Otherwise maintain the original order
-    let orderedContacts = [...contacts];
-    
-    // If we have a selected city or visible contacts from the map
-    if (selectedCity || visibleMapContacts.length > 0) {
-      // First, prioritize contacts visible in the current map view
-      const visibleIds = new Set(visibleMapContacts.map(c => c.id));
+      // If contact city exactly matches the search city, prioritize it
+      if (aCity === searchCity && bCity !== searchCity) return -1;
+      if (bCity === searchCity && aCity !== searchCity) return 1;
       
-      // Next, find contacts relevant to selected city
-      const relevantToCity = selectedCity 
-        ? contacts.filter(contact => 
-            (contact.mailing_city && contact.mailing_city.toLowerCase().includes(selectedCity.toLowerCase())) ||
-            (contact.mailing_state && contact.mailing_state.toLowerCase().includes(selectedCity.toLowerCase()))
-          )
-        : [];
+      // If contact city contains the search term, prioritize it
+      const aContains = aCity.includes(searchCity);
+      const bContains = bCity.includes(searchCity);
+      if (aContains && !bContains) return -1;
+      if (bContains && !aContains) return 1;
       
-      const relevantIds = new Set(relevantToCity.map(c => c.id));
-      
-      orderedContacts.sort((a, b) => {
-        // First priority: visible in current map view with distance sorting
-        const aVisibleIndex = visibleMapContacts.findIndex(c => c.id === a.id);
-        const bVisibleIndex = visibleMapContacts.findIndex(c => c.id === b.id);
-        
-        if (aVisibleIndex >= 0 && bVisibleIndex >= 0) {
-          return aVisibleIndex - bVisibleIndex; // Use the order from visible contacts
-        }
-        
-        if (aVisibleIndex >= 0) return -1;
-        if (bVisibleIndex >= 0) return 1;
-        
-        // Second priority: relevant to selected city
-        const aIsRelevant = relevantIds.has(a.id);
-        const bIsRelevant = relevantIds.has(b.id);
-        
-        if (aIsRelevant && !bIsRelevant) return -1;
-        if (!aIsRelevant && bIsRelevant) return 1;
-        
-        // Default: maintain original ordering
-        return 0;
-      });
-    }
-    
-    return (
-      <div className="flex flex-col h-full">
-        {statusMessage}
-        <ContactsList 
-          contacts={orderedContacts} 
-          selectedContact={selectedContact}
-          onContactSelect={setSelectedContact}
-        />
-      </div>
-    );
+      // Default to alphabetical order
+      return aCity.localeCompare(bCity);
+    });
   };
 
   // Return a loading state if not mounted yet (server-side)
@@ -234,54 +171,202 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
-      {/* Top bar with logo and action buttons */}
-      <div className="flex justify-between items-center bg-white shadow px-4 py-2 z-10">
-        <h1 className="text-xl font-bold text-gray-800" onClick={() => setShowMap(true)}>Traveling</h1>
-        
-        <div className="flex items-center space-x-2">
-          <button 
-            className="p-2 rounded-md hover:bg-gray-100"
-            onClick={() => setShowSidebar(!showSidebar)}
-          >
-            {showSidebar ? (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
-              </svg>
-            )}
-          </button>
-        </div>
-      </div>
+    <div className="relative">
+      {/* Full-screen map */}
+      <MapboxMap 
+        contacts={contacts} 
+        selectedCity={selectedCity} 
+        selectedContact={selectedContact}
+        onViewportChange={handleViewportChange}
+      />
       
-      <div className="flex flex-1 overflow-hidden">
-        {/* Map component (always rendered) */}
-        <div className={`flex-1 ${showMap ? 'block' : 'hidden md:block'}`}>
-          <MapboxMap 
-            contacts={contacts}
-            selectedCity={selectedCity}
-            selectedContact={selectedContact}
-            onVisibleContactsChange={handleVisibleContactsChange}
-          />
-        </div>
-        
-        {/* Sidebar with contacts list (conditional rendering based on state) */}
-        {showSidebar && (
-          <div className="w-full md:w-96 bg-white shadow-lg overflow-y-auto h-full">
-            {sidebarContent()}
-          </div>
-        )}
-      </div>
-      
-      {/* Command+K search component */}
+      {/* Command+K Search */}
       <CommandKSearch 
         contacts={contacts}
         onCitySelect={handleCitySelect}
-        onContactSelect={setSelectedContact}
+        onContactSelect={handleContactSelect}
       />
+      
+      {/* Header */}
+      <div className="fixed top-0 left-0 w-full z-10 bg-white/90 backdrop-blur-sm shadow-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center">
+              <h1 
+                className="text-xl font-semibold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors" 
+                onClick={openMap}
+              >
+                Traveling
+              </h1>
+              {selectedCity && (
+                <div className="ml-3 text-sm text-gray-600">
+                  <span className="font-medium text-gray-700">{selectedCity}</span> area
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-4">
+              {/* Contact count badge */}
+              {visibleContacts.length > 0 && (
+                <div className="hidden md:flex items-center px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-md">
+                  <span className="font-medium">{visibleContacts.length}</span>
+                  <span className="ml-1">contacts in view</span>
+                </div>
+              )}
+              
+              {/* Command+K Search Indicator */}
+              <button
+                className="flex items-center px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200"
+                onClick={() => {
+                  // Simulate Command+K press
+                  window.dispatchEvent(
+                    new KeyboardEvent('keydown', {
+                      key: 'k', 
+                      metaKey: true, 
+                      ctrlKey: true,
+                      bubbles: true
+                    })
+                  );
+                }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <span className="mr-1">Search</span>
+                <kbd className="hidden sm:inline-flex px-1.5 bg-white text-xs text-gray-500 border border-gray-300 rounded">⌘</kbd>
+                <kbd className="hidden sm:inline-flex px-1.5 bg-white text-xs text-gray-500 border border-gray-300 rounded">K</kbd>
+              </button>
+              
+              {/* Sidebar Toggle */}
+              <button
+                onClick={toggleSidebar}
+                className="p-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100"
+              >
+                {showSidebar ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16m-7 6h7" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                )}
+              </button>
+              
+              {/* Upload Link */}
+              <Link
+                href="/upload"
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+              >
+                Upload Contacts
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Floating sidebar */}
+      <div 
+        className={`fixed right-0 top-16 bottom-0 bg-white/90 backdrop-blur-sm p-4 shadow-lg transition-all duration-300 ease-in-out z-10 overflow-auto ${
+          showSidebar ? 'w-80' : 'w-0 opacity-0'
+        }`}
+      >
+        {showSidebar && (
+          <>
+            <div className="flex items-center justify-between border-b pb-2 mb-5">
+              <h2 className="text-xl font-semibold text-gray-900">Filter Contacts</h2>
+              {visibleContacts.length > 0 && (
+                <div className="text-sm bg-blue-100 text-blue-800 rounded-full px-2.5 py-0.5">
+                  {visibleContacts.length} in view
+                </div>
+              )}
+            </div>
+            
+            {error && (
+              <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 rounded-md">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-red-800">Error loading contacts</h3>
+                    <div className="mt-2 text-sm text-red-700">
+                      <p>{error}</p>
+                    </div>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => window.location.reload()}
+                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md bg-red-100 text-red-800 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                      >
+                        Refresh page
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {loading ? (
+              <div className="flex justify-center items-center h-24">
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+              </div>
+            ) : (
+              <>
+                {selectedCity && (
+                  <div className="mb-4 p-3 bg-blue-50 rounded-md flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-blue-800">
+                        Showing area around: <span className="font-semibold">{selectedCity}</span>
+                      </div>
+                      <div className="text-xs text-blue-600 mt-0.5">
+                        {visibleContacts.length > 0 
+                          ? 'Contacts sorted by proximity' 
+                          : 'No contacts found in this area'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setSelectedCity('')}
+                      className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                
+                <ContactsList
+                  contacts={getOrderedContacts()}
+                  onCitySelect={handleCitySelect}
+                  selectedCity={selectedCity}
+                  onContactSelect={handleContactSelect}
+                />
+                
+                {contacts.length === 0 && (
+                  <div className="text-center py-8">
+                    <h3 className="text-lg font-medium text-gray-900">No contacts found</h3>
+                    <p className="mt-2 text-gray-500">
+                      {selectedCity
+                        ? `No contacts found in "${selectedCity}". Try searching for a different city or upload new contacts.`
+                        : 'Get started by uploading your contacts.'}
+                    </p>
+                    <div className="mt-4">
+                      <Link
+                        href="/upload"
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+                      >
+                        Upload Contacts
+                      </Link>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 } 

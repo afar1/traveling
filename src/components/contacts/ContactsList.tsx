@@ -5,10 +5,9 @@ import { Contact } from '@/types/supabase';
 
 interface ContactsListProps {
   contacts: Contact[];
-  onCitySelect?: (city: string) => void;
+  onCitySelect: (city: string) => void;
   selectedCity?: string;
   onContactSelect?: (contact: Contact) => void;
-  selectedContact?: Contact | null;
 }
 
 export default function ContactsList({
@@ -16,13 +15,12 @@ export default function ContactsList({
   onCitySelect,
   selectedCity,
   onContactSelect,
-  selectedContact,
 }: ContactsListProps) {
   // Handle search form submission
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchTerm) {
-      onCitySelect?.(searchTerm);
+      onCitySelect(searchTerm);
     }
   };
 
@@ -45,7 +43,7 @@ export default function ContactsList({
   // Clear search filter
   const handleClearFilter = () => {
     setSearchTerm('');
-    onCitySelect?.('');
+    onCitySelect('');
   };
 
   // Handle contact selection
@@ -247,21 +245,13 @@ export default function ContactsList({
                 <div 
                   key={contact.id} 
                   className={`p-4 hover:bg-gray-50 cursor-pointer transition-colors ${
-                    selectedContact?.id === contact.id 
-                      ? 'bg-blue-100 border-l-4 border-blue-500' 
-                      : inViewport 
-                        ? 'bg-blue-50' 
-                        : ''
+                    inViewport ? 'bg-blue-50' : ''
                   }`}
                   onClick={() => handleContactClick(contact)}
                 >
                   <div className="flex items-start">
                     <div className={`flex-shrink-0 w-3 h-3 mt-2 mr-2 rounded-full ${
-                      selectedContact?.id === contact.id 
-                        ? 'bg-blue-500 border border-blue-700' 
-                        : inViewport 
-                          ? 'bg-blue-100 border border-blue-400' 
-                          : 'bg-white border border-gray-300'
+                      inViewport ? 'bg-blue-100 border border-blue-400' : 'bg-white border border-gray-300'
                     }`}></div>
                     <div className="flex-grow">
                       <div className="text-lg font-semibold text-gray-900">{getFullName(contact)}</div>
@@ -286,7 +276,7 @@ export default function ContactsList({
                             className="hover:underline"
                             onClick={(e) => {
                               e.stopPropagation(); // Prevent triggering parent click
-                              onCitySelect?.(contact.mailing_city || '');
+                              onCitySelect(contact.mailing_city || '');
                             }}
                           >
                             {contact.mailing_city}

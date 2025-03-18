@@ -33,10 +33,9 @@ interface MapboxMapProps {
   selectedCity?: string;
   selectedContact: Contact | null;
   onViewportChange?: (visibleContacts: Contact[]) => void;
-  onVisibleContactsChange?: (visibleContacts: Contact[]) => void;
 }
 
-export default function MapboxMap({ contacts, selectedCity, selectedContact, onViewportChange, onVisibleContactsChange }: MapboxMapProps) {
+export default function MapboxMap({ contacts, selectedCity, selectedContact, onViewportChange }: MapboxMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markers = useRef<mapboxgl.Marker[]>([]);
@@ -552,70 +551,65 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
     }
   };
   
-  // Calculate distance between two points in kilometers (Haversine formula)
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371; // Radius of the earth in km
-    const dLat = deg2rad(lat2 - lat1);
-    const dLon = deg2rad(lon2 - lon1);
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2)
-    ; 
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-    const d = R * c; // Distance in km
-    return d;
-  };
-  
-  // Convert degrees to radians
-  const deg2rad = (deg: number): number => {
-    return deg * (Math.PI/180);
-  };
-
-  // Detect which contacts are visible in the current map bounds and update state
+  // Update the list of visible contacts based on map bounds
   const updateVisibleContacts = useCallback(() => {
     if (!map.current) return;
     
     try {
-      // Get the current map bounds
+      // Get the current bounds of the map
       const bounds = map.current.getBounds();
       if (!bounds) {
         console.warn('Could not get map bounds');
         return;
       }
       
-      // Calculate which contacts are within the current viewport
-      const visibleContacts = contacts.filter(contact => {
-        if (!contact.latitude || !contact.longitude) return false;
+      const sw = bounds.getSouthWest();
+      const ne = bounds.getNorthEast();
+      
+      // Filter contacts that are within these bounds
+      const visibleContacts = validContacts.filter(contact => {
+        // Skip contacts without coordinates
+        if (!contact.longitude || !contact.latitude) return false;
         
-        return bounds.contains([contact.longitude, contact.latitude]);
-      });
-      
-      // Calculate distance from map center for sorting
-      const center = map.current.getCenter();
-      const contactsWithDistances = visibleContacts.map(contact => {
-        const distance = calculateDistance(
-          center.lat, 
-          center.lng, 
-          contact.latitude!, 
-          contact.longitude!
+        return (
+          contact.longitude >= sw.lng &&
+          contact.longitude <= ne.lng &&
+          contact.latitude >= sw.lat &&
+          contact.latitude <= ne.lat
         );
-        return { ...contact, distance };
       });
       
-      // Sort by distance from map center
-      contactsWithDistances.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+      // Update visible contacts
+      setVisibleContacts(visibleContacts);
       
-      console.log(`👁️ Updated visible contacts: ${contactsWithDistances.length} contacts in view`);
+      // Log details for debugging
+      console.log(`Map bounds: SW(${sw.lng.toFixed(4)}, ${sw.lat.toFixed(4)}) NE(${ne.lng.toFixed(4)}, ${ne.lat.toFixed(4)})`);
+      console.log(`Visible contacts: ${visibleContacts.length} out of ${validContacts.length}`);
       
-      // Update the visible contacts count 
-      if (onVisibleContactsChange) {
-        onVisibleContactsChange(contactsWithDistances); 
+      // Update the debug info - COMMENTED OUT FOR NOW
+      /*
+      setDebugInfo({
+        action: `Updated visible contacts`,
+        data: {
+          count: visibleContacts.length,
+          bounds: [
+            [sw.lng, sw.lat],
+            [ne.lng, ne.lat]
+          ]
+        },
+        success: true,
+        timestamp: Date.now()
+      });
+      */
+      
+      // Call the onViewportChange callback if provided
+      if (onViewportChange) {
+        onViewportChange(visibleContacts);
       }
-    } catch (err) {
-      console.error('Error updating visible contacts:', err);
+    } catch (error) {
+      console.error('Error updating visible contacts:', error);
     }
-  }, [contacts, onVisibleContactsChange]);
+  }, [validContacts, onViewportChange]);
   
   // Function to add markers to the map
   const addMarkers = (mapInstance: mapboxgl.Map) => {
@@ -903,37 +897,48 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
         </div>
       )}
       
-      {/* Debug indicator */}
+      {/* Loading indicator for geocoding */}
+      {isGeocoding && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white bg-opacity-90 px-4 py-2 rounded-full shadow-md">
+          <div className="flex items-center space-x-2">
+            <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+            <span className="text-gray-800 font-medium">Searching...</span>
+          </div>
+        </div>
+      )}
+      
+      {/* Debug info overlay - COMMENTED OUT FOR NOW */}
+      {/* 
       {debugInfo && (
         <div 
-          className={`fixed top-20 left-4 p-3 rounded-md shadow-lg z-50 text-sm font-mono max-w-xs overflow-hidden ${
+          className={`absolute right-4 bottom-8 p-2 rounded-lg shadow-lg max-w-xs ${
             debugInfo.success ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-orange-50 border border-orange-200 text-orange-800'
           }`}
-          style={{ maxHeight: '200px', overflowY: 'auto' }}
+          style={{ zIndex: 10, maxWidth: '300px', fontSize: '0.8rem' }}
         >
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center">
+          <div className="flex items-center mb-1">
+            <div className="flex-1 truncate">
               <span className="font-bold">{isGeocoding ? '⏳' : (debugInfo.success ? '✅' : '⚠️')}</span>
               <span className="ml-1 font-bold truncate">{debugInfo.action}</span>
             </div>
             <button 
-              onClick={dismissDebug}
-              className="text-xs opacity-70 hover:opacity-100 p-1"
-              aria-label="Dismiss"
+              className="ml-2 text-gray-500 hover:text-gray-700"
+              onClick={() => setDebugInfo(null)}
             >
-              ✕
+              ×
             </button>
           </div>
           {debugInfo.data && (
-            <pre className="text-xs mt-1 opacity-80 overflow-x-auto">
+            <pre className="text-xs mt-1 overflow-auto max-h-32 bg-white bg-opacity-70 p-1 rounded">
               {JSON.stringify(debugInfo.data, null, 2)}
             </pre>
           )}
-          <div className="text-xs mt-1 opacity-70">
+          <div className="text-xs text-right mt-1 text-gray-600">
             {new Date(debugInfo.timestamp).toLocaleTimeString()}
           </div>
         </div>
       )}
+      */}
     </div>
   );
 }
