@@ -3,10 +3,57 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Contact } from '@/types/supabase';
 
+// USA states data
+const US_STATES = [
+  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 
+  'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 
+  'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 
+  'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 
+  'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 
+  'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 'Tennessee', 
+  'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming',
+  // Also include common abbreviations
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
+  'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
+  'VA', 'WA', 'WV', 'WI', 'WY'
+];
+
+interface SearchResults {
+  contacts: Contact[];
+  cities: string[];
+  states: string[];
+}
+
 interface CommandKSearchProps {
   contacts: Contact[];
   onCitySelect: (city: string) => void;
   onContactSelect: (contact: Contact) => void;
+}
+
+// Fuzzy search function
+function fuzzyMatch(text: string, query: string): boolean {
+  if (!text || !query) return false;
+  
+  text = text.toLowerCase();
+  query = query.toLowerCase();
+  
+  // Exact match is always good
+  if (text.includes(query)) return true;
+  
+  // Simple fuzzy matching for typos
+  let textIndex = 0;
+  let queryIndex = 0;
+  
+  while (textIndex < text.length && queryIndex < query.length) {
+    if (text[textIndex] === query[queryIndex]) {
+      queryIndex++;
+    }
+    textIndex++;
+  }
+  
+  // If we matched all characters in the query, it's a fuzzy match
+  return queryIndex === query.length;
 }
 
 export default function CommandKSearch({ 
@@ -16,22 +63,31 @@ export default function CommandKSearch({
 }: CommandKSearchProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [results, setResults] = useState<{
-    contacts: Contact[];
-    cities: string[];
-  }>({ contacts: [], cities: [] });
+  const [results, setResults] = useState<SearchResults>({ 
+    contacts: [], 
+    cities: [],
+    states: []
+  });
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [activeSection, setActiveSection] = useState<'contacts' | 'cities'>('contacts');
+  const [activeSection, setActiveSection] = useState<'contacts' | 'cities' | 'states'>('contacts');
   const modalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   
-  // Extract unique cities using useMemo to prevent recreation on every render
-  const cities = useMemo(() => {
-    return Array.from(new Set(
+  // Extract unique cities and states using useMemo to prevent recreation on every render
+  const { cities, states } = useMemo(() => {
+    const uniqueCities = Array.from(new Set(
       contacts
         .map((contact) => contact.mailing_city)
         .filter(Boolean) as string[]
     )).sort();
+    
+    const uniqueStates = Array.from(new Set(
+      contacts
+        .map((contact) => contact.mailing_state)
+        .filter(Boolean) as string[]
+    )).sort();
+    
+    return { cities: uniqueCities, states: uniqueStates };
   }, [contacts]);
   
   // Listen for Command+K to open search
@@ -42,7 +98,7 @@ export default function CommandKSearch({
         e.preventDefault();
         setIsOpen(true);
         setSearchTerm('');
-        setResults({ contacts: [], cities: [] });
+        setResults({ contacts: [], cities: [], states: [] });
         setSelectedIndex(-1);
         
         // Focus input after a short delay to allow modal to open
@@ -61,12 +117,12 @@ export default function CommandKSearch({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
   
-  // Handle search input changes
+  // Handle search input changes with fuzzy matching
   useEffect(() => {
     if (!isOpen) return;
     
     if (!searchTerm.trim()) {
-      setResults({ contacts: [], cities: [] });
+      setResults({ contacts: [], cities: [], states: [] });
       setSelectedIndex(-1);
       return;
     }
@@ -76,20 +132,34 @@ export default function CommandKSearch({
     // Search contacts
     const matchedContacts = contacts.filter(contact => {
       const fullName = `${contact.first_name} ${contact.last_name}`.toLowerCase();
-      return fullName.includes(term) || 
-             contact.account_name?.toLowerCase().includes(term) ||
-             contact.mailing_city?.toLowerCase().includes(term) ||
-             contact.mailing_state?.toLowerCase().includes(term);
+      return fuzzyMatch(fullName, term) ||
+             fuzzyMatch(contact.account_name || '', term) ||
+             fuzzyMatch(contact.mailing_city || '', term) ||
+             fuzzyMatch(contact.mailing_state || '', term);
     }).slice(0, 5); // Limit to 5 contacts
     
-    // Search cities
+    // Fuzzy search cities from contacts
     const matchedCities = cities
-      .filter(city => city.toLowerCase().includes(term))
+      .filter(city => fuzzyMatch(city.toLowerCase(), term))
       .slice(0, 3); // Limit to 3 cities
+    
+    // Fuzzy search states - both from contacts and the US states list
+    const contactStates = states.filter(state => fuzzyMatch(state.toLowerCase(), term));
+    
+    // Also search the US states list that aren't in our contacts
+    const additionalStates = US_STATES.filter(state => {
+      const stateInContacts = states.some(s => s.toLowerCase() === state.toLowerCase());
+      return !stateInContacts && fuzzyMatch(state.toLowerCase(), term);
+    });
+    
+    // Combine and de-duplicate states
+    const matchedStates = Array.from(new Set([...contactStates, ...additionalStates]))
+      .slice(0, 3); // Limit to 3 states
     
     setResults({ 
       contacts: matchedContacts, 
-      cities: matchedCities 
+      cities: matchedCities,
+      states: matchedStates
     });
     
     // Reset selection
@@ -100,8 +170,10 @@ export default function CommandKSearch({
       setActiveSection('contacts');
     } else if (matchedCities.length > 0) {
       setActiveSection('cities');
+    } else if (matchedStates.length > 0) {
+      setActiveSection('states');
     }
-  }, [searchTerm, contacts, cities, isOpen]);
+  }, [searchTerm, contacts, cities, states, isOpen]);
   
   // Handle keyboard navigation
   useEffect(() => {
@@ -114,9 +186,7 @@ export default function CommandKSearch({
         
         const totalContactItems = results.contacts.length;
         const totalCityItems = results.cities.length;
-        const totalItems = totalContactItems + totalCityItems;
-        
-        if (totalItems === 0) return;
+        const totalStateItems = results.states.length;
         
         if (activeSection === 'contacts') {
           // If at the end of contacts section, move to cities section
@@ -124,14 +194,28 @@ export default function CommandKSearch({
             if (totalCityItems > 0) {
               setActiveSection('cities');
               setSelectedIndex(0);
+            } else if (totalStateItems > 0) {
+              setActiveSection('states');
+              setSelectedIndex(0);
             }
-          } else {
+          } else if (totalContactItems > 0) {
             // Move down within contacts
             setSelectedIndex(prev => Math.min(prev + 1, totalContactItems - 1));
           }
-        } else {
-          // Move down within cities
-          setSelectedIndex(prev => Math.min(prev + 1, totalCityItems - 1));
+        } else if (activeSection === 'cities') {
+          // If at the end of cities section, move to states section
+          if (selectedIndex >= totalCityItems - 1) {
+            if (totalStateItems > 0) {
+              setActiveSection('states');
+              setSelectedIndex(0);
+            }
+          } else if (totalCityItems > 0) {
+            // Move down within cities
+            setSelectedIndex(prev => Math.min(prev + 1, totalCityItems - 1));
+          }
+        } else if (activeSection === 'states' && totalStateItems > 0) {
+          // Move down within states
+          setSelectedIndex(prev => Math.min(prev + 1, totalStateItems - 1));
         }
       }
       
@@ -139,18 +223,35 @@ export default function CommandKSearch({
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         
-        if (activeSection === 'cities') {
+        const totalContactItems = results.contacts.length;
+        const totalCityItems = results.cities.length;
+        
+        if (activeSection === 'states') {
+          // If at the start of states section, move to cities or contacts section
+          if (selectedIndex <= 0) {
+            if (totalCityItems > 0) {
+              setActiveSection('cities');
+              setSelectedIndex(totalCityItems - 1);
+            } else if (totalContactItems > 0) {
+              setActiveSection('contacts');
+              setSelectedIndex(totalContactItems - 1);
+            }
+          } else {
+            // Move up within states
+            setSelectedIndex(prev => Math.max(prev - 1, 0));
+          }
+        } else if (activeSection === 'cities') {
           // If at the start of cities section, move to contacts section
           if (selectedIndex <= 0) {
-            if (results.contacts.length > 0) {
+            if (totalContactItems > 0) {
               setActiveSection('contacts');
-              setSelectedIndex(results.contacts.length - 1);
+              setSelectedIndex(totalContactItems - 1);
             }
           } else {
             // Move up within cities
             setSelectedIndex(prev => Math.max(prev - 1, 0));
           }
-        } else {
+        } else if (activeSection === 'contacts') {
           // Move up within contacts
           setSelectedIndex(prev => Math.max(prev - 1, 0));
         }
@@ -166,6 +267,10 @@ export default function CommandKSearch({
             setIsOpen(false);
           } else if (activeSection === 'cities' && results.cities[selectedIndex]) {
             onCitySelect(results.cities[selectedIndex]);
+            setIsOpen(false);
+          } else if (activeSection === 'states' && results.states[selectedIndex]) {
+            // For state selection, we'll use the same handler as city selection
+            onCitySelect(results.states[selectedIndex]);
             setIsOpen(false);
           }
         }
@@ -227,11 +332,15 @@ export default function CommandKSearch({
               <input
                 ref={inputRef}
                 type="text"
-                placeholder="Search contacts or cities..."
+                placeholder="Search contacts, cities, or states..."
                 className="flex-1 border-0 bg-transparent py-1.5 focus:ring-0 focus:outline-none text-gray-900 placeholder:text-gray-400 sm:text-sm"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck="false"
+                aria-autocomplete="none"
               />
               
               <div className="flex items-center gap-1">
@@ -243,7 +352,7 @@ export default function CommandKSearch({
           
           {/* Search results */}
           <div className="max-h-[24rem] overflow-y-auto overscroll-contain py-2">
-            {results.contacts.length === 0 && results.cities.length === 0 && searchTerm && (
+            {results.contacts.length === 0 && results.cities.length === 0 && results.states.length === 0 && searchTerm && (
               <div className="px-4 py-10 text-center">
                 <p className="text-gray-500">No results found</p>
                 <p className="text-sm text-gray-400 mt-1">Try searching for something else</p>
@@ -327,10 +436,48 @@ export default function CommandKSearch({
                 </ul>
               </div>
             )}
+            
+            {/* States section */}
+            {results.states.length > 0 && (
+              <div>
+                <div className="px-4 py-1">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">States</h3>
+                </div>
+                <ul>
+                  {results.states.map((state, idx) => (
+                    <li 
+                      key={state}
+                      className={`px-4 py-2 cursor-pointer transition-colors ${
+                        activeSection === 'states' && idx === selectedIndex 
+                          ? 'bg-blue-50 text-blue-700' 
+                          : 'hover:bg-gray-50'
+                      }`}
+                      onClick={() => {
+                        onCitySelect(state);
+                        setIsOpen(false);
+                      }}
+                      onMouseEnter={() => {
+                        setActiveSection('states');
+                        setSelectedIndex(idx);
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex-shrink-0 rounded-full h-8 w-8 bg-indigo-100 flex items-center justify-center text-indigo-600">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                          </svg>
+                        </div>
+                        <span className="font-medium text-gray-900">{state}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           
           {/* Footer with search commands */}
-          {(results.contacts.length > 0 || results.cities.length > 0) && (
+          {(results.contacts.length > 0 || results.cities.length > 0 || results.states.length > 0) && (
             <div className="px-4 py-3 border-t border-gray-200 text-xs text-gray-500">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
