@@ -189,7 +189,7 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
       <div 
         ref={dialogRef}
-        className="bg-white rounded-xl shadow-2xl w-full max-w-xl overflow-hidden"
+        className="bg-white bg-opacity-95 rounded-xl shadow-2xl w-full max-w-xl overflow-hidden border border-gray-300"
         style={{ maxHeight: 'calc(100vh - 40px)' }}
       >
         <div className="relative">
@@ -204,7 +204,7 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
               ref={inputRef}
               type="text"
               placeholder={searchMode === 'local' ? "Search contacts and cities..." : "Search anywhere in the world..."}
-              className="w-full py-4 px-2 outline-none text-lg"
+              className="w-full py-4 px-2 outline-none text-lg text-gray-900"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -212,10 +212,10 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
             />
             <button 
               onClick={toggleSearchMode}
-              className={`mr-2 px-3 py-1 rounded-md text-sm font-medium ${
+              className={`mr-2 px-3 py-1 rounded-md text-sm font-medium border ${
                 searchMode === 'global' 
-                  ? 'bg-blue-100 text-blue-800' 
-                  : 'bg-gray-100 text-gray-600'
+                  ? 'bg-blue-100 text-blue-800 border-blue-300' 
+                  : 'bg-gray-100 text-gray-800 border-gray-300'
               }`}
             >
               {searchMode === 'global' ? '🌎 Global' : '🏙️ Local'}
@@ -228,7 +228,7 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
               {/* Contacts section */}
               {results.contacts.length > 0 && (
                 <div>
-                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <div className="px-4 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider">
                     Contacts
                   </div>
                   {results.contacts.map((contact, index) => (
@@ -237,11 +237,11 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
                       className={`px-4 py-2 hover:bg-gray-100 cursor-pointer ${selectedItemIndex === index ? 'bg-gray-100' : ''}`}
                       onClick={() => handleSelectItem(index)}
                     >
-                      <div className="font-medium">
+                      <div className="font-medium text-gray-900">
                         {contact.first_name} {contact.last_name}
-                        {contact.account_name && <span className="ml-2 text-sm text-gray-600">• {contact.account_name}</span>}
+                        {contact.account_name && <span className="ml-2 text-sm text-gray-700">• {contact.account_name}</span>}
                       </div>
-                      <div className="text-sm text-gray-600">
+                      <div className="text-sm text-gray-700">
                         {formatAddress(contact)}
                       </div>
                     </div>
@@ -252,7 +252,7 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
               {/* Cities/Locations section */}
               {results.cities.length > 0 && (
                 <div>
-                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  <div className="px-4 py-2 text-xs font-semibold text-gray-700 uppercase tracking-wider">
                     {searchMode === 'global' ? 'Search Locations' : 'Cities'}
                   </div>
                   {results.cities.map((city, index) => (
@@ -263,10 +263,10 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
                       }`}
                       onClick={() => handleSelectItem(results.contacts.length + index)}
                     >
-                      <div className="font-medium flex items-center">
+                      <div className="font-medium flex items-center text-gray-900">
                         {searchMode === 'global' ? '🌎' : '📍'} {city}
                         {searchMode === 'global' && (
-                          <span className="ml-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+                          <span className="ml-2 text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded-full">
                             Global Search
                           </span>
                         )}
@@ -277,12 +277,12 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
               )}
             </div>
           ) : searchTerm.length > 0 ? (
-            <div className="p-6 text-center text-gray-500">
+            <div className="p-6 text-center text-gray-700">
               <p>No results found{searchMode === 'local' ? '. Try global search?' : ''}</p>
               {searchMode === 'local' && (
                 <button 
                   onClick={toggleSearchMode}
-                  className="mt-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-md text-sm"
+                  className="mt-2 px-3 py-1 bg-blue-50 text-blue-700 rounded-md text-sm"
                 >
                   🌎 Switch to Global Search
                 </button>
@@ -291,24 +291,24 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
           ) : null}
 
           {/* Footer */}
-          <div className="border-t border-gray-200 px-4 py-2 text-xs text-gray-500 flex justify-between items-center">
+          <div className="border-t border-gray-200 px-4 py-2 text-xs text-gray-700 flex justify-between items-center">
             <div>
               <span className="inline-flex items-center mr-3">
-                <kbd className="px-1 bg-gray-100 rounded mr-1">↑</kbd>
-                <kbd className="px-1 bg-gray-100 rounded mr-1">↓</kbd>
+                <kbd className="px-1 bg-gray-100 border border-gray-300 rounded mr-1 text-gray-800">↑</kbd>
+                <kbd className="px-1 bg-gray-100 border border-gray-300 rounded mr-1 text-gray-800">↓</kbd>
                 to navigate
               </span>
               <span className="inline-flex items-center mr-3">
-                <kbd className="px-1 bg-gray-100 rounded mr-1">Enter</kbd>
+                <kbd className="px-1 bg-gray-100 border border-gray-300 rounded mr-1 text-gray-800">Enter</kbd>
                 to select
               </span>
               <span className="inline-flex items-center">
-                <kbd className="px-1 bg-gray-100 rounded mr-1">Tab</kbd>
+                <kbd className="px-1 bg-gray-100 border border-gray-300 rounded mr-1 text-gray-800">Tab</kbd>
                 to toggle search mode
               </span>
             </div>
             <div>
-              <kbd className="px-1 bg-gray-100 rounded mr-1">Esc</kbd>
+              <kbd className="px-1 bg-gray-100 border border-gray-300 rounded mr-1 text-gray-800">Esc</kbd>
               to close
             </div>
           </div>
