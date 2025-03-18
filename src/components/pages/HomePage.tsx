@@ -119,6 +119,46 @@ export default function HomePage() {
     setVisibleContacts(newVisibleContacts);
   };
 
+  // Function to order contacts based on location
+  const getOrderedContacts = () => {
+    // If no city is selected, return contacts as is
+    if (!selectedCity) return contacts;
+    
+    // If we have visible contacts from the map viewport, prioritize them
+    if (visibleContacts.length > 0) {
+      // First: contacts that are in the current viewport
+      // Second: remaining contacts
+      const visibleIds = new Set(visibleContacts.map(c => c.id));
+      
+      // Create a new array with visible contacts first, then others
+      return [
+        ...visibleContacts,
+        ...contacts.filter(c => !visibleIds.has(c.id))
+      ];
+    }
+    
+    // If no visible contacts (maybe the area has no contacts),
+    // order contacts by city name similarity
+    return [...contacts].sort((a, b) => {
+      const aCity = a.mailing_city?.toLowerCase() || '';
+      const bCity = b.mailing_city?.toLowerCase() || '';
+      const searchCity = selectedCity.toLowerCase();
+      
+      // If contact city exactly matches the search city, prioritize it
+      if (aCity === searchCity && bCity !== searchCity) return -1;
+      if (bCity === searchCity && aCity !== searchCity) return 1;
+      
+      // If contact city contains the search term, prioritize it
+      const aContains = aCity.includes(searchCity);
+      const bContains = bCity.includes(searchCity);
+      if (aContains && !bContains) return -1;
+      if (bContains && !aContains) return 1;
+      
+      // Default to alphabetical order
+      return aCity.localeCompare(bCity);
+    });
+  };
+
   // Return a loading state if not mounted yet (server-side)
   if (!isMounted) {
     return (
@@ -271,10 +311,10 @@ export default function HomePage() {
                   <div className="mb-4 p-3 bg-blue-50 rounded-md flex items-center justify-between">
                     <div>
                       <div className="text-sm font-medium text-blue-800">
-                        Showing contacts near: <span className="font-semibold">{selectedCity}</span>
+                        Showing area around: <span className="font-semibold">{selectedCity}</span>
                       </div>
                       <div className="text-xs text-blue-600 mt-0.5">
-                        {visibleContacts.length} contacts in the current view
+                        Contacts sorted by proximity
                       </div>
                     </div>
                     <button
@@ -289,7 +329,7 @@ export default function HomePage() {
                 )}
                 
                 <ContactsList
-                  contacts={selectedCity ? contacts : visibleContacts}
+                  contacts={getOrderedContacts()}
                   onCitySelect={handleCitySelect}
                   selectedCity={selectedCity}
                   onContactSelect={handleContactSelect}
