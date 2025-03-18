@@ -7,37 +7,21 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Get the Mapbox access token from environment variables
 // Use a hardcoded token if the environment variable isn't available
-const MAPBOX_ACCESS_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || 'pk.eyJ1IjoiYWZhcjAxIiwiYSI6ImNtOGRpcG4zNDIybncycm9iNHhtc3g2dGsifQ.QBFYHz7yyD31BFpN5KopPQ';
+const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiYWZhcjAxIiwiYSI6ImNtOGRpcG4zNDIybncycm9iNHhtc3g2dGsifQ.QBFYHz7yyD31BFpN5KopPQ';
 
-// Verify token format is valid
-const isValidToken = typeof MAPBOX_ACCESS_TOKEN === 'string' && 
-  MAPBOX_ACCESS_TOKEN.startsWith('pk.') &&
-  MAPBOX_ACCESS_TOKEN.length > 20;
-
-// Log token status for debugging
-console.log('Mapbox token available:', isValidToken);
-
-if (!isValidToken) {
-  console.warn('WARNING: Mapbox token appears to be invalid, map functionality may be limited.');
-}
+// Log token for debugging
+console.log('Mapbox token available:', !!MAPBOX_ACCESS_TOKEN);
 
 interface MapboxMapProps {
   contacts: Contact[];
-  selectedCity?: string | null;
+  selectedCity?: string;
   selectedContact: Contact | null;
-  showRadius?: boolean; // Whether to show the 60-mile radius
 }
 
-export default function MapboxMap({ 
-  contacts, 
-  selectedCity, 
-  selectedContact,
-  showRadius = false
-}: MapboxMapProps) {
+export default function MapboxMap({ contacts, selectedCity, selectedContact }: MapboxMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const markers = useRef<mapboxgl.Marker[]>([]);
-  const radiusCircle = useRef<mapboxgl.GeoJSONSource | null>(null);
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isGeocoding, setIsGeocoding] = useState(false);
@@ -49,11 +33,6 @@ export default function MapboxMap({
   } | null>(null);
   const lastGeocodedCity = useRef<string | null>(null);
 
-  // Constants for radius visualization
-  const RADIUS_MILES = 60; // 60 mile radius
-  const RADIUS_ID = 'proximity-radius';
-  const RADIUS_SOURCE = 'radius-source';
-
   // Filter valid contacts that have coordinates
   const validContacts = contacts.filter(
     (contact) => contact.latitude && contact.longitude
@@ -62,10 +41,6 @@ export default function MapboxMap({
   // Geocode a city name and return coordinates
   const geocodeCity = async (city: string): Promise<[number, number] | null> => {
     try {
-      if (!isValidToken) {
-        throw new Error('Invalid Mapbox access token');
-      }
-      
       console.log(`🔍 Starting geocoding for city: "${city}"`);
       setIsGeocoding(true);
       setDebugInfo({
@@ -79,105 +54,72 @@ export default function MapboxMap({
       
       // Create the direct Mapbox API URL
       const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedCity}.json?access_token=${MAPBOX_ACCESS_TOKEN}&types=place,locality,region&country=us,ca,gb,de,fr&limit=1&fuzzyMatch=true`;
-      
-      // Log URL without token for security
-      const sanitizedUrl = mapboxUrl.replace(MAPBOX_ACCESS_TOKEN, 'HIDDEN_TOKEN');
-      console.log(`📡 Geocoding API URL: ${sanitizedUrl}`);
+      console.log(`📡 Geocoding API URL: ${mapboxUrl.replace(MAPBOX_ACCESS_TOKEN, 'HIDDEN_TOKEN')}`);
       
       try {
         // Try direct API call first
         const directResponse = await fetch(mapboxUrl);
         
-        if (!directResponse.ok) {
-          const errorText = await directResponse.text();
-          console.error(`⚠️ Direct API call failed with status ${directResponse.status}: ${errorText}`);
-          throw new Error(`Mapbox API error: ${directResponse.status}`);
+        if (directResponse.ok) {
+          const data = await directResponse.json();
+          console.log(`✅ Direct Mapbox API response:`, data);
+          
+          // Check if we got any results
+          if (data.features && data.features.length > 0) {
+            const firstResult = data.features[0];
+            const placeName = firstResult.place_name;
+            const coordinates = firstResult.center;
+            console.log(`🎯 Successfully geocoded "${city}" to: "${placeName}" at coordinates:`, coordinates);
+            
+            setDebugInfo({
+              action: `Successfully geocoded "${city}"`,
+              data: { placeName, coordinates, method: 'direct' },
+              success: true,
+              timestamp: Date.now()
+            });
+            
+            return [coordinates[0], coordinates[1]];
+          }
+        } else {
+          console.warn(`⚠️ Direct API call failed with status ${directResponse.status}, trying Next.js API route fallback`);
         }
-        
-        const data = await directResponse.json();
-        
-        // Check if the response indicates an error
-        if (data.message && data.code) {
-          console.error(`⚠️ Mapbox API error: ${data.code} - ${data.message}`);
-          throw new Error(`Mapbox API error: ${data.message}`);
-        }
-        
-        console.log(`✅ Direct Mapbox API response:`, data);
-        
-        // Check if we got any results
-        if (!data.features || data.features.length === 0) {
-          console.warn(`⚠️ No geocoding results found for: "${city}"`);
-          setDebugInfo({
-            action: `No results for "${city}"`,
-            success: false,
-            timestamp: Date.now()
-          });
-          return null;
-        }
-        
-        const firstResult = data.features[0];
-        const placeName = firstResult.place_name;
-        const coordinates = firstResult.center;
-        console.log(`🎯 Successfully geocoded "${city}" to: "${placeName}" at coordinates:`, coordinates);
-        
-        setDebugInfo({
-          action: `Successfully geocoded "${city}"`,
-          data: { placeName, coordinates, method: 'direct' },
-          success: true,
-          timestamp: Date.now()
-        });
-        
-        return [coordinates[0], coordinates[1]];
       } catch (directError) {
-        // Log the direct API error
         console.warn(`⚠️ Direct API call error:`, directError);
-        
-        // Create a local API route URL as fallback (this will handle CORS issues)
-        const localApiUrl = `/api/geocode?city=${encodedCity}`;
-        console.log(`🔄 Trying API route fallback: ${localApiUrl}`);
-        
+        // Continue to fallback method
+      }
+      
+      // Create a local API route URL as fallback (this will handle CORS issues)
+      // This assumes you've created an API route in Next.js that proxies to Mapbox
+      const localApiUrl = `/api/geocode?city=${encodedCity}`;
+      console.log(`🔄 Trying API route fallback: ${localApiUrl}`);
+      
+      setDebugInfo({
+        action: `Trying fallback method for "${city}"`,
+        data: { url: localApiUrl },
+        success: true,
+        timestamp: Date.now()
+      });
+      
+      // If direct call failed, try through our own API endpoint
+      const response = await fetch(localApiUrl);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Geocoding API error: Status ${response.status}`, errorText);
         setDebugInfo({
-          action: `Trying fallback method for "${city}"`,
-          data: { url: localApiUrl },
-          success: true,
+          action: `Geocoding error for "${city}"`,
+          data: { status: response.status, error: errorText, method: 'fallback' },
+          success: false,
           timestamp: Date.now()
         });
-        
-        // If direct call failed, try through our own API endpoint
-        const response = await fetch(localApiUrl);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`❌ Geocoding API error: Status ${response.status}`, errorText);
-          setDebugInfo({
-            action: `Geocoding error for "${city}"`,
-            data: { status: response.status, error: errorText, method: 'fallback' },
-            success: false,
-            timestamp: Date.now()
-          });
-          throw new Error(`Geocoding error: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        console.log(`✅ Fallback API response:`, data);
-        
-        // Check for API error messages
-        if (data.message && (data.code || data.statusCode)) {
-          console.error(`❌ Geocoding API error: ${data.message}`);
-          throw new Error(`Geocoding API error: ${data.message}`);
-        }
-        
-        // Check if we got any results
-        if (!data.features || data.features.length === 0) {
-          console.warn(`⚠️ No geocoding results found for: "${city}"`);
-          setDebugInfo({
-            action: `No results for "${city}"`,
-            success: false,
-            timestamp: Date.now()
-          });
-          return null;
-        }
-        
+        throw new Error(`Geocoding error: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Fallback API response:`, data);
+      
+      // Check if we got any results
+      if (data.features && data.features.length > 0) {
         const firstResult = data.features[0];
         const placeName = firstResult.place_name;
         const coordinates = firstResult.center;
@@ -192,6 +134,14 @@ export default function MapboxMap({
         
         return [coordinates[0], coordinates[1]];
       }
+      
+      console.warn(`⚠️ No geocoding results found for: "${city}"`);
+      setDebugInfo({
+        action: `No results for "${city}"`,
+        success: false,
+        timestamp: Date.now()
+      });
+      return null;
     } catch (err) {
       console.error('❌ Error geocoding city:', err);
       setDebugInfo({
@@ -200,7 +150,6 @@ export default function MapboxMap({
         success: false,
         timestamp: Date.now()
       });
-      setError(`Geocoding error: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     } finally {
       setIsGeocoding(false);
@@ -237,21 +186,6 @@ export default function MapboxMap({
   // Set mounted state after initial render
   useEffect(() => {
     setMounted(true);
-    
-    // Check for WebGL support
-    const checkWebGLSupport = () => {
-      const canvas = document.createElement('canvas');
-      const gl = canvas.getContext('webgl') || 
-                 canvas.getContext('experimental-webgl');
-      
-      return !!gl;
-    };
-    
-    // Set error if WebGL is not supported
-    if (typeof window !== 'undefined' && !checkWebGLSupport()) {
-      console.error('WebGL is not supported in this browser');
-      setError('Your browser does not support WebGL, which is required for maps. Please try using a different browser.');
-    }
   }, []);
 
   // Initialize map in a separate effect that runs after mounting
@@ -266,6 +200,105 @@ export default function MapboxMap({
     return () => clearTimeout(timer);
   }, [mounted, contacts, selectedCity]);
   
+  // Add a new effect to handle city selection
+  useEffect(() => {
+    // Skip if not mounted or no map or no selected city
+    if (!mounted || !map.current || !selectedCity) return;
+    
+    // Geocode and fly to the selected city
+    geocodeAndFlyToCity(selectedCity);
+  }, [mounted, selectedCity]);
+  
+  // Function to geocode a city and fly to it
+  const geocodeAndFlyToCity = async (city: string) => {
+    if (!map.current) return;
+    
+    // Skip if we've already geocoded this city recently
+    if (lastGeocodedCity.current === city) return;
+    
+    // Update the last geocoded city
+    lastGeocodedCity.current = city;
+    
+    // Show loading indicator
+    setIsGeocoding(true);
+    
+    // Geocode the city
+    const coordinates = await geocodeCity(city);
+    if (!coordinates) {
+      console.error(`Failed to geocode city: ${city}`);
+      setDebugInfo({
+        action: `Failed to geocode "${city}"`,
+        success: false,
+        timestamp: Date.now()
+      });
+      setIsGeocoding(false);
+      return;
+    }
+    
+    // Clean up existing city markers
+    markers.current = markers.current.filter(marker => {
+      const el = marker.getElement();
+      if (el.classList.contains('city-marker')) {
+        marker.remove();
+        return false;
+      }
+      return true;
+    });
+    
+    // Add a city marker
+    const el = document.createElement('div');
+    el.className = 'city-marker';
+    el.style.backgroundColor = '#9333ea'; // Purple
+    el.style.width = '24px';
+    el.style.height = '24px';
+    el.style.borderRadius = '50%';
+    el.style.border = '3px solid white';
+    el.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+    
+    // Create popup for the city
+    const popup = new mapboxgl.Popup({
+      offset: 25,
+      closeButton: true,
+      closeOnClick: false,
+      maxWidth: '300px',
+    }).setHTML(`
+      <div class="p-3">
+        <h3 class="font-bold text-lg mb-1">${city}</h3>
+        <p class="text-sm text-gray-600">Showing area around ${city}</p>
+      </div>
+    `);
+    
+    // Create and add the marker
+    const cityMarker = new mapboxgl.Marker(el)
+      .setLngLat(coordinates)
+      .setPopup(popup)
+      .addTo(map.current);
+    
+    // Store the marker
+    markers.current.push(cityMarker);
+    
+    // Auto-open the popup
+    cityMarker.togglePopup();
+    
+    // Fly to the city with a consistent zoom level for area view
+    map.current.flyTo({
+      center: coordinates,
+      zoom: 11, // Fixed zoom level for consistent area view
+      essential: true,
+      speed: 1.5,
+      curve: 1.2,
+    });
+    
+    setDebugInfo({
+      action: `Navigated to "${city}"`,
+      data: { coordinates },
+      success: true,
+      timestamp: Date.now()
+    });
+    
+    setIsGeocoding(false);
+  };
+
   // Function to initialize the map
   const initializeMap = () => {
     if (!mapContainer.current) {
@@ -275,13 +308,6 @@ export default function MapboxMap({
     }
     
     try {
-      // Check if mapboxgl is properly loaded
-      if (typeof mapboxgl !== 'object' || !mapboxgl.Map) {
-        console.error('Mapbox GL JS library is not available');
-        setError('Map library could not be loaded. Please check your internet connection and refresh the page.');
-        return;
-      }
-      
       console.log('Initializing Mapbox with container:', mapContainer.current);
       
       // Clean up existing map if it exists
@@ -307,28 +333,10 @@ export default function MapboxMap({
         dragRotate: false,
       });
       
-      // Add more detailed error handling
-      newMap.on('error', (e: mapboxgl.ErrorEvent) => {
+      // Add error handling
+      newMap.on('error', (e) => {
         console.error('Mapbox error:', e);
-        // Log detailed information about the error
-        if (e.error) {
-          console.error('Error details:', {
-            message: e.error.message,
-          });
-        }
-        
-        // Display a more helpful error message
-        const errorMessage = e.error?.message || 'Unknown map error';
-        setError(`Map error: ${errorMessage}`);
-        
-        // Log Mapbox access token status
-        console.log('Mapbox token valid:', !!MAPBOX_ACCESS_TOKEN);
-      });
-      
-      // Log style loading errors
-      newMap.on('style.error', (e: { error?: Error }) => {
-        console.error('Mapbox style error:', e);
-        setError(`Map style error: ${e.error?.message || 'Failed to load map style'}`);
+        setError('Failed to load map: ' + (e.error?.message || 'Unknown error'));
       });
       
       // Add load event handler
@@ -337,6 +345,11 @@ export default function MapboxMap({
         
         // Add markers
         addMarkers(newMap);
+        
+        // If there's a selected city, fly to it
+        if (selectedCity && selectedCity !== lastGeocodedCity.current) {
+          geocodeAndFlyToCity(selectedCity);
+        }
       });
       
       // Add zoom controls
@@ -344,18 +357,6 @@ export default function MapboxMap({
       
       // Store map reference
       map.current = newMap;
-
-      // Add an event to handle style loaded - move this inside the function
-      newMap.on('style.load', () => {
-        // Check if we need to redraw the radius circle after style changes
-        if (showRadius && lastGeocodedCity.current && radiusCircle.current) {
-          geocodeCity(lastGeocodedCity.current).then(coordinates => {
-            if (coordinates) {
-              drawRadiusCircle(newMap, coordinates);
-            }
-          });
-        }
-      });
     } catch (err) {
       console.error('Error initializing Mapbox:', err);
       setError('Failed to initialize map: ' + (err instanceof Error ? err.message : String(err)));
@@ -364,69 +365,78 @@ export default function MapboxMap({
   
   // Function to add markers to the map
   const addMarkers = (mapInstance: mapboxgl.Map) => {
-    // Clear any existing markers
+    // Clear existing markers
     markers.current.forEach(marker => marker.remove());
     markers.current = [];
     
-    // Add markers for each contact
+    // Add markers for valid contacts
     validContacts.forEach(contact => {
-      // Skip if we don't have valid coordinates
-      if (!contact.longitude || !contact.latitude) return;
+      if (!contact.latitude || !contact.longitude) return;
       
-      // Create custom marker element
+      // Check if this is the selected contact
+      const isSelected = selectedContact && selectedContact.id === contact.id;
+      
+      // Create marker element
       const el = document.createElement('div');
-      el.className = 'custom-marker';
-      el.style.backgroundColor = '#3b82f6';
-      el.style.width = '14px';
-      el.style.height = '14px';
-      el.style.borderRadius = '50%';
-      el.style.border = '2px solid white';
-      el.style.boxShadow = '0 0 3px rgba(0,0,0,0.3)';
+      el.className = 'contact-marker';
       
-      // Format full name
-      const fullName = `${contact.first_name} ${contact.last_name}`;
+      // Style the marker differently if it's selected
+      if (isSelected) {
+        el.style.backgroundColor = '#2563eb'; // Blue
+        el.style.width = '22px';
+        el.style.height = '22px';
+        el.style.borderRadius = '50%';
+        el.style.border = '3px solid white';
+        el.style.boxShadow = '0 0 8px rgba(0,0,0,0.4)';
+      } else {
+        el.style.backgroundColor = '#3b82f6'; // Lighter blue
+        el.style.width = '14px';
+        el.style.height = '14px';
+        el.style.borderRadius = '50%';
+        el.style.border = '2px solid white';
+        el.style.boxShadow = '0 0 4px rgba(0,0,0,0.2)';
+      }
       
-      // Create popup with improved styling for better legibility
-      const popup = new mapboxgl.Popup({ 
+      // Create contact name for popup
+      const contactName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim() || 'Unnamed Contact';
+      
+      // Create address string for popup
+      const addressParts = [];
+      if (contact.mailing_street) addressParts.push(contact.mailing_street);
+      if (contact.mailing_city) addressParts.push(contact.mailing_city);
+      if (contact.mailing_state) addressParts.push(contact.mailing_state);
+      if (contact.mailing_zip) addressParts.push(contact.mailing_zip);
+      const address = addressParts.join(', ') || 'No address provided';
+      
+      // Create popup content
+      const popupContent = `
+        <div class="p-3">
+          <h3 class="font-bold text-lg mb-1">${contactName}</h3>
+          ${contact.account_name ? `<p class="text-sm text-gray-600 mb-2">${contact.account_name}</p>` : ''}
+          <p class="text-sm">${address}</p>
+        </div>
+      `;
+      
+      // Create the popup
+      const popup = new mapboxgl.Popup({
         offset: 25,
         closeButton: true,
         closeOnClick: false,
         maxWidth: '300px',
-        className: 'custom-popup'
-      }).setHTML(`
-        <div class="p-4 bg-white rounded-lg shadow-lg">
-          <div class="flex items-center mb-3">
-            <div class="flex-shrink-0 bg-blue-100 text-blue-700 font-bold rounded-full h-12 w-12 flex items-center justify-center mr-3 text-lg">
-              ${contact.first_name.slice(0, 1).toUpperCase()}${contact.last_name.slice(0, 1).toUpperCase()}
-            </div>
-            <div>
-              <h3 class="font-bold text-gray-900 text-base leading-tight">${fullName}</h3>
-              ${contact.title ? `<p class="text-gray-700 text-sm">${contact.title}</p>` : ''}
-            </div>
-          </div>
-          
-          ${contact.account_name ? `
-            <div class="mb-2">
-              <p class="text-gray-800 text-sm font-medium">${contact.account_name}</p>
-            </div>
-          ` : ''}
-          
-          <div class="border-t border-gray-200 pt-2 mt-2">
-            <div class="text-gray-700 text-sm space-y-1">
-              ${contact.mailing_street ? `<p>${contact.mailing_street}</p>` : ''}
-              ${contact.mailing_city ? `<p class="font-medium">${contact.mailing_city}${contact.mailing_state ? `, ${contact.mailing_state}` : ''} ${contact.mailing_zip || ''}</p>` : ''}
-              ${contact.mailing_country ? `<p>${contact.mailing_country}</p>` : ''}
-            </div>
-          </div>
-        </div>
-      `);
+      }).setHTML(popupContent);
       
-      // Create and store marker
+      // Create and add the marker
       const marker = new mapboxgl.Marker(el)
-        .setLngLat([contact.longitude, contact.latitude] as [number, number])
+        .setLngLat([contact.longitude, contact.latitude])
         .setPopup(popup)
         .addTo(mapInstance);
       
+      // Auto-open popup for selected contact
+      if (isSelected) {
+        marker.togglePopup();
+      }
+      
+      // Add to markers array
       markers.current.push(marker);
     });
     
@@ -472,182 +482,6 @@ export default function MapboxMap({
       document.head.appendChild(style);
     }
   };
-  
-  // Draw a radius circle around a point
-  const drawRadiusCircle = (mapInstance: mapboxgl.Map, center: [number, number]) => {
-    // Convert miles to kilometers (mapbox uses kilometers)
-    const radiusKm = RADIUS_MILES * 1.60934;
-    
-    // Remove existing circle if it exists
-    if (mapInstance.getSource(RADIUS_SOURCE)) {
-      if (mapInstance.getLayer(RADIUS_ID)) {
-        mapInstance.removeLayer(RADIUS_ID);
-      }
-      mapInstance.removeSource(RADIUS_SOURCE);
-    }
-    
-    // Add the circle source
-    mapInstance.addSource(RADIUS_SOURCE, {
-      type: 'geojson',
-      data: {
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: center
-        },
-        properties: {
-          radius: radiusKm
-        }
-      }
-    });
-    
-    // Get the source for future reference
-    radiusCircle.current = mapInstance.getSource(RADIUS_SOURCE) as mapboxgl.GeoJSONSource;
-    
-    // Add the circle layer
-    mapInstance.addLayer({
-      id: RADIUS_ID,
-      type: 'circle',
-      source: RADIUS_SOURCE,
-      paint: {
-        'circle-radius': {
-          stops: [
-            [0, 0],
-            [20, radiusKm * 1000 / 0.075] // Scale radius based on zoom level
-          ],
-          base: 2
-        },
-        'circle-color': '#3182ce',
-        'circle-opacity': 0.15,
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#3182ce',
-        'circle-stroke-opacity': 0.3
-      }
-    });
-  };
-  
-  // Remove the radius circle
-  const removeRadiusCircle = (mapInstance: mapboxgl.Map) => {
-    if (mapInstance.getLayer(RADIUS_ID)) {
-      mapInstance.removeLayer(RADIUS_ID);
-    }
-    if (mapInstance.getSource(RADIUS_SOURCE)) {
-      mapInstance.removeSource(RADIUS_SOURCE);
-      radiusCircle.current = null;
-    }
-  };
-  
-  // Geocode and fly to city when selectedCity changes
-  useEffect(() => {
-    // Skip if no map or no city
-    if (!map.current || !selectedCity) {
-      console.log(`🗺️ Skipping geocoding: map exists=${!!map.current}, selectedCity=${selectedCity}`);
-      return;
-    }
-    
-    // Skip if already geocoding
-    if (isGeocoding) {
-      console.log(`⏳ Already geocoding, skipping new request for "${selectedCity}"`);
-      return;
-    }
-    
-    console.log(`🔍 Processing city selection: "${selectedCity}"`);
-    
-    // Check if we have contacts in this city
-    const cityContacts = validContacts.filter(
-      contact => contact.mailing_city?.toLowerCase().includes(selectedCity.toLowerCase())
-    );
-    
-    console.log(`📊 Found ${cityContacts.length} contacts in "${selectedCity}"`);
-    
-    // If we have contacts in this city, center on the first one
-    if (cityContacts.length > 0 && cityContacts[0].longitude && cityContacts[0].latitude) {
-      console.log(`📍 Using existing contact coordinates for "${selectedCity}": [${cityContacts[0].longitude}, ${cityContacts[0].latitude}]`);
-      map.current.jumpTo({
-        center: [cityContacts[0].longitude, cityContacts[0].latitude],
-        zoom: 10,
-      });
-      return;
-    }
-    
-    // If we don't have contacts in this city, geocode it
-    async function geocodeAndFly() {
-      if (!map.current || !selectedCity) return;
-      
-      // Don't geocode if not a valid token
-      if (!isValidToken) {
-        setError("Cannot search for city: Invalid Mapbox access token");
-        return;
-      }
-      
-      lastGeocodedCity.current = selectedCity;
-      setIsGeocoding(true);
-      
-      try {
-        console.log(`Geocoding city: ${selectedCity}`);
-        
-        // Get coordinates
-        const coords = await geocodeCity(selectedCity);
-        
-        // Skip if map is no longer available
-        if (!map.current) return;
-        
-        // Handle case where geocoding failed
-        if (!coords) {
-          setError(`Could not find location "${selectedCity}". Please try another city.`);
-          setTimeout(() => setError(null), 3000);
-          return;
-        }
-        
-        console.log(`Flying to coordinates: [${coords[0]}, ${coords[1]}]`);
-        
-        try {
-          // Fly to the coordinates
-          map.current.flyTo({
-            center: coords,
-            zoom: 10,
-            essential: true
-          });
-          
-          // Verify the center was set correctly
-          setTimeout(() => {
-            if (!map.current) return;
-            const actualCenter = map.current.getCenter();
-            console.log(`✓ Map center is now: [${actualCenter.lng}, ${actualCenter.lat}]`);
-          }, 500);
-          
-          // Draw or update the radius circle if needed
-          if (showRadius && map.current) {
-            drawRadiusCircle(map.current, coords);
-          } else if (map.current) {
-            // Remove radius circle if it exists but shouldn't be shown
-            if (map.current.getSource(RADIUS_ID)) {
-              removeRadiusCircle(map.current);
-            }
-          }
-          
-          // Update the debug info
-          setDebugInfo({
-            action: `Successfully navigated to "${selectedCity}"`,
-            data: { coordinates: coords },
-            success: true,
-            timestamp: Date.now()
-          });
-        } catch (mapError) {
-          console.error('Error navigating to coordinates:', mapError);
-          setError(`Error navigating to ${selectedCity}: ${mapError instanceof Error ? mapError.message : String(mapError)}`);
-        }
-      } catch (error) {
-        console.error('Error during geocoding:', error);
-        setError(`Failed to find location: ${error instanceof Error ? error.message : String(error)}`);
-        setTimeout(() => setError(null), 3000);
-      } finally {
-        setIsGeocoding(false);
-      }
-    }
-    
-    geocodeAndFly();
-  }, [selectedCity, validContacts]);
   
   // Fly to selectedContact when it changes
   useEffect(() => {

@@ -11,13 +11,10 @@ export default function HomePage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isMapOpen, setMapOpen] = useState(false);
-  const [isSidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
-  const [selectedCity, setSelectedCity] = useState<string | null>(null);
-  const [showProximityRadius, setShowProximityRadius] = useState(false);
+  const [selectedCity, setSelectedCity] = useState<string>('');
   const [showSidebar, setShowSidebar] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
 
   // Set isMounted to true when component mounts (client-side only)
   useEffect(() => {
@@ -81,22 +78,24 @@ export default function HomePage() {
     fetchContacts();
   }, [selectedCity, isMounted]);
 
-  // Function to handle city selection
   const handleCitySelect = (city: string) => {
-    console.log(`Selected city: ${city}`);
     setSelectedCity(city);
+    // Reset selected contact when selecting a city
     setSelectedContact(null);
-    setMapOpen(true);
-    setShowProximityRadius(true); // Enable proximity radius when selecting a city via search
+    
+    // Close sidebar for better map view on mobile
+    if (window.innerWidth < 768) {
+      setShowSidebar(false);
+    }
   };
 
-  // Function to handle contact selection
   const handleContactSelect = (contact: Contact) => {
-    console.log(`Selected contact: ${contact.first_name} ${contact.last_name}`);
     setSelectedContact(contact);
-    setSelectedCity(null);
-    setMapOpen(true);
-    setShowProximityRadius(false); // Disable proximity radius when selecting a contact
+    
+    // Close sidebar for better map view on mobile
+    if (window.innerWidth < 768) {
+      setShowSidebar(false);
+    }
   };
 
   const toggleSidebar = () => {
@@ -125,9 +124,8 @@ export default function HomePage() {
       {/* Full-screen map */}
       <MapboxMap 
         contacts={contacts} 
-        selectedCity={selectedCity}
+        selectedCity={selectedCity} 
         selectedContact={selectedContact}
-        showRadius={showProximityRadius}
       />
       
       {/* Command+K Search */}
