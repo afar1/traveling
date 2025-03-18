@@ -173,10 +173,10 @@ export default function CommandKSearch({ contacts, onCitySelect, onContactSelect
     const contactsCount = results.contacts.length;
     
     if (index < contactsCount) {
-      // Selected a contact
+      // Selected a contact - will navigate from current map position
       onContactSelect(results.contacts[index]);
     } else {
-      // Selected a city
+      // Selected a city - will navigate from current map position
       const cityIndex = index - contactsCount;
       onCitySelect(results.cities[cityIndex]);
     }

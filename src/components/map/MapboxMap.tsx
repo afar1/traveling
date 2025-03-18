@@ -345,8 +345,8 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
 
   // Geocode a city and fly to it
   const geocodeAndFlyToCity = useCallback(async (cityInput: string): Promise<void> => {
-    if (!cityInput || !cityInput.trim()) {
-      console.log('📍 No city name provided to geocode');
+    if (!cityInput || !cityInput.trim() || !map.current) {
+      console.log('📍 No city name provided to geocode or map not initialized');
       return;
     }
     
@@ -367,13 +367,23 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
         if (map.current) {
           addCityMarker(city, coordinates);
           
-          // Fly to the coordinates
+          // Get current zoom level to use as starting point
+          const currentZoom = map.current.getZoom();
+          
+          // Calculate target zoom based on whether it's a state/province
+          const targetZoom = isStateOrProvince(city) ? 5 : 11;
+          
+          // Fly to the coordinates from current position
           map.current.flyTo({
             center: coordinates,
-            zoom: isStateOrProvince(city) ? 5 : 11,
+            zoom: targetZoom,
             essential: true,
-            speed: 0.8,
-            curve: 1.2,
+            speed: 0.8, // Moderate speed for better UX
+            curve: 1.2, // Slightly curved animation
+            
+            // Don't jump to new location if far away, always animate
+            screenSpeed: 0.8, // Consistent screen speed regardless of distance
+            maxDuration: 5000, // Cap animation duration to 5 seconds
           });
           
           setMapStatus({
@@ -382,6 +392,9 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
             lastCoordinates: coordinates,
             message: `Now viewing ${isStateOrProvince(city) ? 'state' : 'city'}: ${formatLocationName(city)}`
           });
+          
+          // Log the transition details for debugging
+          console.log(`📍 Flying from zoom level ${currentZoom} to ${targetZoom}`);
           
           setFlyingTo(null);
           
@@ -798,12 +811,23 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       contactMarker.togglePopup();
     }
     
-    // Fly to the contact location
+    // Get current zoom level for smooth transition
+    const currentZoom = map.current.getZoom();
+    console.log(`📍 Flying to contact from zoom level ${currentZoom} to 13`);
+    
+    // Fly to the contact location, starting from current view
     map.current.flyTo({
       center: [selectedContact.longitude, selectedContact.latitude],
       zoom: 13, // Closer zoom for individual contacts
       essential: true,
+      speed: 1.2, // Slightly faster for contact selection
+      curve: 1.0, // Linear curve for contact selection
+      screenSpeed: 0.7, // Consistent screen speed
+      maxDuration: 4000, // Cap animation duration
     });
+    
+    // Log that we're flying to a contact
+    console.log(`🧑‍💼 Flying to contact: ${selectedContact.first_name} ${selectedContact.last_name}`);
   }, [selectedContact]);
   
   // Function to dismiss debug panel
