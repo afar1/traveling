@@ -53,8 +53,17 @@ export default function HomePage() {
         }
         
         const data = await response.json();
-        setContacts(data.contacts || []);
-        setError(null);
+        console.log('Contacts API response:', data); // Debug log
+        
+        if (data && data.contacts) {
+          setContacts(data.contacts);
+          console.log(`Loaded ${data.contacts.length} contacts`);
+          setError(null);
+        } else {
+          console.error('Unexpected API response format:', data);
+          setContacts([]);
+          setError('Received invalid data format from server');
+        }
       } catch (err) {
         console.error('Error fetching contacts:', err);
         
