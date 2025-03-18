@@ -80,8 +80,9 @@ export default function HomePage() {
   }, [selectedCity, isMounted]);
 
   const handleCitySelect = (city: string) => {
+    console.log(`Setting selected city/state to: "${city}"`);
     setSelectedCity(city);
-    // Reset selected contact when selecting a city
+    // Reset selected contact when selecting a city/state
     setSelectedContact(null);
     
     // Close sidebar for better map view on mobile
@@ -318,7 +319,9 @@ export default function HomePage() {
                         Showing area around: <span className="font-semibold">{selectedCity}</span>
                       </div>
                       <div className="text-xs text-blue-600 mt-0.5">
-                        Contacts sorted by proximity
+                        {visibleContacts.length > 0 
+                          ? 'Contacts sorted by proximity' 
+                          : 'No contacts found in this area'}
                       </div>
                     </div>
                     <button

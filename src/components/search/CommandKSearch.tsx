@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Contact } from '@/types/supabase';
 
 // USA states data
@@ -19,487 +19,303 @@ const US_STATES = [
   'VA', 'WA', 'WV', 'WI', 'WY'
 ];
 
-interface SearchResults {
-  contacts: Contact[];
-  cities: string[];
-  states: string[];
-}
-
 interface CommandKSearchProps {
   contacts: Contact[];
   onCitySelect: (city: string) => void;
   onContactSelect: (contact: Contact) => void;
 }
 
-// Fuzzy search function
-function fuzzyMatch(text: string, query: string): boolean {
-  if (!text || !query) return false;
-  
-  text = text.toLowerCase();
-  query = query.toLowerCase();
-  
-  // Exact match is always good
-  if (text.includes(query)) return true;
-  
-  // Simple fuzzy matching for typos
-  let textIndex = 0;
-  let queryIndex = 0;
-  
-  while (textIndex < text.length && queryIndex < query.length) {
-    if (text[textIndex] === query[queryIndex]) {
-      queryIndex++;
-    }
-    textIndex++;
-  }
-  
-  // If we matched all characters in the query, it's a fuzzy match
-  return queryIndex === query.length;
-}
+// Helper function to format address for display
+const formatAddress = (contact: Contact) => {
+  const parts = [];
+  if (contact.mailing_city) parts.push(contact.mailing_city);
+  if (contact.mailing_state) parts.push(contact.mailing_state);
+  if (parts.length === 0 && contact.mailing_country) parts.push(contact.mailing_country);
+  return parts.join(', ');
+};
 
-export default function CommandKSearch({ 
-  contacts, 
-  onCitySelect, 
-  onContactSelect 
-}: CommandKSearchProps) {
+export default function CommandKSearch({ contacts, onCitySelect, onContactSelect }: CommandKSearchProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [results, setResults] = useState<SearchResults>({ 
-    contacts: [], 
-    cities: [],
-    states: []
-  });
-  const [selectedIndex, setSelectedIndex] = useState(-1);
-  const [activeSection, setActiveSection] = useState<'contacts' | 'cities' | 'states'>('contacts');
-  const modalRef = useRef<HTMLDivElement>(null);
+  const [results, setResults] = useState<{ contacts: Contact[], cities: string[] }>({ contacts: [], cities: [] });
+  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
+  const [totalItems, setTotalItems] = useState(0);
+  const [searchMode, setSearchMode] = useState<'local' | 'global'>('local');
+  const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  
-  // Extract unique cities and states using useMemo to prevent recreation on every render
-  const { cities, states } = useMemo(() => {
-    const uniqueCities = Array.from(new Set(
-      contacts
-        .map((contact) => contact.mailing_city)
-        .filter(Boolean) as string[]
-    )).sort();
+
+  // Extract unique cities from contacts
+  const allCities = [...new Set(contacts
+    .filter(contact => contact.mailing_city)
+    .map(contact => contact.mailing_city as string)
+  )];
+
+  // Toggle global search mode
+  const toggleSearchMode = useCallback(() => {
+    setSearchMode(prev => prev === 'local' ? 'global' : 'local');
+    // Re-run search with current term but in new mode
+    if (searchTerm.trim().length > 0) {
+      performSearch(searchTerm, searchMode === 'local' ? 'global' : 'local');
+    }
+  }, [searchTerm, searchMode]);
+
+  // Handle search
+  const performSearch = useCallback((term: string, mode: 'local' | 'global' = 'local') => {
+    if (!term) {
+      setResults({ contacts: [], cities: [] });
+      setTotalItems(0);
+      return;
+    }
+
+    const normalizedTerm = term.toLowerCase().trim();
     
-    const uniqueStates = Array.from(new Set(
-      contacts
-        .map((contact) => contact.mailing_state)
-        .filter(Boolean) as string[]
-    )).sort();
+    // Search through contacts
+    const filteredContacts = contacts
+      .filter(contact => {
+        const name = `${contact.first_name || ''} ${contact.last_name || ''}`.toLowerCase();
+        const company = contact.account_name?.toLowerCase() || '';
+        const city = contact.mailing_city?.toLowerCase() || '';
+        const state = contact.mailing_state?.toLowerCase() || '';
+        
+        return name.includes(normalizedTerm) || 
+               company.includes(normalizedTerm) || 
+               city.includes(normalizedTerm) || 
+               state.includes(normalizedTerm);
+      })
+      .slice(0, 5); // Limit to 5 contacts
+
+    // Search through cities (from contacts if local mode)
+    let filteredCities: string[] = [];
     
-    return { cities: uniqueCities, states: uniqueStates };
-  }, [contacts]);
-  
-  // Listen for Command+K to open search
+    if (mode === 'local') {
+      // In local mode - only search cities from existing contacts
+      filteredCities = allCities
+        .filter(city => city.toLowerCase().includes(normalizedTerm))
+        .slice(0, 3); // Limit to 3 cities
+    } else {
+      // In global mode - we'll allow any search term as a potential location
+      // Just add the search term itself as a potential global search
+      if (normalizedTerm.length > 1) {
+        filteredCities = [term.trim()];
+      }
+    }
+
+    // Calculate total items for keyboard navigation
+    const total = filteredContacts.length + filteredCities.length;
+    
+    setResults({ contacts: filteredContacts, cities: filteredCities });
+    setTotalItems(total);
+    setSelectedItemIndex(0); // Reset selection to first item
+  }, [contacts, allCities]);
+
+  // Keyboard listener for cmd+k
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Command+K (Mac) or Ctrl+K (Windows/Linux)
+      // Command+K or Ctrl+K to open
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setIsOpen(true);
         setSearchTerm('');
-        setResults({ contacts: [], cities: [], states: [] });
-        setSelectedIndex(-1);
-        
-        // Focus input after a short delay to allow modal to open
+        setResults({ contacts: [], cities: [] });
         setTimeout(() => {
           inputRef.current?.focus();
-        }, 10);
+        }, 100);
       }
       
-      // Close with Escape
-      if (isOpen && e.key === 'Escape') {
+      // Escape to close
+      if (e.key === 'Escape' && isOpen) {
         setIsOpen(false);
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
-  
-  // Handle search input changes with fuzzy matching
+
+  // Handle click outside to close
   useEffect(() => {
-    if (!isOpen) return;
-    
-    if (!searchTerm.trim()) {
-      setResults({ contacts: [], cities: [], states: [] });
-      setSelectedIndex(-1);
-      return;
-    }
-    
-    const term = searchTerm.toLowerCase().trim();
-    
-    // Search contacts
-    const matchedContacts = contacts.filter(contact => {
-      const fullName = `${contact.first_name} ${contact.last_name}`.toLowerCase();
-      return fuzzyMatch(fullName, term) ||
-             fuzzyMatch(contact.account_name || '', term) ||
-             fuzzyMatch(contact.mailing_city || '', term) ||
-             fuzzyMatch(contact.mailing_state || '', term);
-    }).slice(0, 5); // Limit to 5 contacts
-    
-    // Fuzzy search cities from contacts
-    const matchedCities = cities
-      .filter(city => fuzzyMatch(city.toLowerCase(), term))
-      .slice(0, 3); // Limit to 3 cities
-    
-    // Fuzzy search states - both from contacts and the US states list
-    const contactStates = states.filter(state => fuzzyMatch(state.toLowerCase(), term));
-    
-    // Also search the US states list that aren't in our contacts
-    const additionalStates = US_STATES.filter(state => {
-      const stateInContacts = states.some(s => s.toLowerCase() === state.toLowerCase());
-      return !stateInContacts && fuzzyMatch(state.toLowerCase(), term);
-    });
-    
-    // Combine and de-duplicate states
-    const matchedStates = Array.from(new Set([...contactStates, ...additionalStates]))
-      .slice(0, 3); // Limit to 3 states
-    
-    setResults({ 
-      contacts: matchedContacts, 
-      cities: matchedCities,
-      states: matchedStates
-    });
-    
-    // Reset selection
-    setSelectedIndex(-1);
-    
-    // Set active section based on which has results
-    if (matchedContacts.length > 0) {
-      setActiveSection('contacts');
-    } else if (matchedCities.length > 0) {
-      setActiveSection('cities');
-    } else if (matchedStates.length > 0) {
-      setActiveSection('states');
-    }
-  }, [searchTerm, contacts, cities, states, isOpen]);
-  
-  // Handle keyboard navigation
-  useEffect(() => {
-    if (!isOpen) return;
-    
-    const handleKeyNav = (e: KeyboardEvent) => {
-      // Arrow down - move selection down
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        
-        const totalContactItems = results.contacts.length;
-        const totalCityItems = results.cities.length;
-        const totalStateItems = results.states.length;
-        
-        if (activeSection === 'contacts') {
-          // If at the end of contacts section, move to cities section
-          if (selectedIndex >= totalContactItems - 1) {
-            if (totalCityItems > 0) {
-              setActiveSection('cities');
-              setSelectedIndex(0);
-            } else if (totalStateItems > 0) {
-              setActiveSection('states');
-              setSelectedIndex(0);
-            }
-          } else if (totalContactItems > 0) {
-            // Move down within contacts
-            setSelectedIndex(prev => Math.min(prev + 1, totalContactItems - 1));
-          }
-        } else if (activeSection === 'cities') {
-          // If at the end of cities section, move to states section
-          if (selectedIndex >= totalCityItems - 1) {
-            if (totalStateItems > 0) {
-              setActiveSection('states');
-              setSelectedIndex(0);
-            }
-          } else if (totalCityItems > 0) {
-            // Move down within cities
-            setSelectedIndex(prev => Math.min(prev + 1, totalCityItems - 1));
-          }
-        } else if (activeSection === 'states' && totalStateItems > 0) {
-          // Move down within states
-          setSelectedIndex(prev => Math.min(prev + 1, totalStateItems - 1));
-        }
-      }
-      
-      // Arrow up - move selection up
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        
-        const totalContactItems = results.contacts.length;
-        const totalCityItems = results.cities.length;
-        
-        if (activeSection === 'states') {
-          // If at the start of states section, move to cities or contacts section
-          if (selectedIndex <= 0) {
-            if (totalCityItems > 0) {
-              setActiveSection('cities');
-              setSelectedIndex(totalCityItems - 1);
-            } else if (totalContactItems > 0) {
-              setActiveSection('contacts');
-              setSelectedIndex(totalContactItems - 1);
-            }
-          } else {
-            // Move up within states
-            setSelectedIndex(prev => Math.max(prev - 1, 0));
-          }
-        } else if (activeSection === 'cities') {
-          // If at the start of cities section, move to contacts section
-          if (selectedIndex <= 0) {
-            if (totalContactItems > 0) {
-              setActiveSection('contacts');
-              setSelectedIndex(totalContactItems - 1);
-            }
-          } else {
-            // Move up within cities
-            setSelectedIndex(prev => Math.max(prev - 1, 0));
-          }
-        } else if (activeSection === 'contacts') {
-          // Move up within contacts
-          setSelectedIndex(prev => Math.max(prev - 1, 0));
-        }
-      }
-      
-      // Enter - select item
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        
-        if (selectedIndex >= 0) {
-          if (activeSection === 'contacts' && results.contacts[selectedIndex]) {
-            onContactSelect(results.contacts[selectedIndex]);
-            setIsOpen(false);
-          } else if (activeSection === 'cities' && results.cities[selectedIndex]) {
-            onCitySelect(results.cities[selectedIndex]);
-            setIsOpen(false);
-          } else if (activeSection === 'states' && results.states[selectedIndex]) {
-            // For state selection, we'll use the same handler as city selection
-            onCitySelect(results.states[selectedIndex]);
-            setIsOpen(false);
-          }
-        }
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyNav);
-    return () => window.removeEventListener('keydown', handleKeyNav);
-  }, [isOpen, results, selectedIndex, activeSection, onContactSelect, onCitySelect]);
-  
-  // Handle outside click to close
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (isOpen && 
-          modalRef.current && 
-          !modalRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dialogRef.current && !dialogRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
     
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [isOpen]);
-  
-  // Helper function to format address
-  const formatAddress = (contact: Contact) => {
-    const parts = [];
-    if (contact.mailing_city) parts.push(contact.mailing_city);
-    if (contact.mailing_state) parts.push(contact.mailing_state);
-    if (parts.length === 0 && contact.mailing_country) parts.push(contact.mailing_country);
-    return parts.join(', ');
+
+  // Handle input change
+  useEffect(() => {
+    performSearch(searchTerm, searchMode);
+  }, [searchTerm, performSearch, searchMode]);
+
+  // Handle keyboard navigation in search results
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedItemIndex(prev => (prev + 1) % totalItems);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedItemIndex(prev => (prev - 1 + totalItems) % totalItems);
+    } else if (e.key === 'Enter' && totalItems > 0) {
+      handleSelectItem(selectedItemIndex);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      toggleSearchMode();
+    }
   };
-  
-  // If not open, render nothing visible
-  if (!isOpen) {
-    return null;
-  }
-  
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      {/* Backdrop */}
+
+  // Handle selecting an item
+  const handleSelectItem = (index: number) => {
+    const contactsCount = results.contacts.length;
+    
+    if (index < contactsCount) {
+      // Selected a contact
+      onContactSelect(results.contacts[index]);
+    } else {
+      // Selected a city
+      const cityIndex = index - contactsCount;
+      onCitySelect(results.cities[cityIndex]);
+    }
+    
+    // Close the dialog
+    setIsOpen(false);
+  };
+
+  return isOpen ? (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
       <div 
-        className="fixed inset-0 bg-gray-700/50 backdrop-blur-sm transition-opacity"
-        onClick={() => setIsOpen(false)}
-      />
-      
-      {/* Dialog */}
-      <div 
-        ref={modalRef}
-        className="relative flex items-start justify-center min-h-screen pt-24 px-4 sm:px-6"
+        ref={dialogRef}
+        className="bg-white rounded-xl shadow-2xl w-full max-w-xl overflow-hidden"
+        style={{ maxHeight: 'calc(100vh - 40px)' }}
       >
-        <div className="w-full max-w-xl mx-auto overflow-hidden rounded-xl shadow-2xl bg-white ring-1 ring-black/5">
+        <div className="relative">
           {/* Search input */}
-          <div className="relative p-4 border-b border-gray-200">
-            <div className="flex items-center space-x-3">
+          <div className="flex items-center border-b border-gray-200">
+            <div className="pl-4 pr-2">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-              <input
-                ref={inputRef}
-                type="text"
-                placeholder="Search contacts, cities, or states..."
-                className="flex-1 border-0 bg-transparent py-1.5 focus:ring-0 focus:outline-none text-gray-900 placeholder:text-gray-400 sm:text-sm"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                autoComplete="off"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck="false"
-                aria-autocomplete="none"
-              />
-              
-              <div className="flex items-center gap-1">
-                <kbd className="hidden sm:inline-flex h-6 w-6 items-center justify-center rounded border border-gray-200 bg-gray-100 font-sans text-xs text-gray-500">⌘</kbd>
-                <kbd className="hidden sm:inline-flex h-6 w-6 items-center justify-center rounded border border-gray-200 bg-gray-100 font-sans text-xs text-gray-500">K</kbd>
-              </div>
             </div>
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder={searchMode === 'local' ? "Search contacts and cities..." : "Search anywhere in the world..."}
+              className="w-full py-4 px-2 outline-none text-lg"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={handleKeyDown}
+              autoFocus
+            />
+            <button 
+              onClick={toggleSearchMode}
+              className={`mr-2 px-3 py-1 rounded-md text-sm font-medium ${
+                searchMode === 'global' 
+                  ? 'bg-blue-100 text-blue-800' 
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              {searchMode === 'global' ? '🌎 Global' : '🏙️ Local'}
+            </button>
           </div>
-          
+
           {/* Search results */}
-          <div className="max-h-[24rem] overflow-y-auto overscroll-contain py-2">
-            {results.contacts.length === 0 && results.cities.length === 0 && results.states.length === 0 && searchTerm && (
-              <div className="px-4 py-10 text-center">
-                <p className="text-gray-500">No results found</p>
-                <p className="text-sm text-gray-400 mt-1">Try searching for something else</p>
-              </div>
-            )}
-            
-            {/* Contacts section */}
-            {results.contacts.length > 0 && (
-              <div>
-                <div className="px-4 py-1">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Contacts</h3>
-                </div>
-                <ul>
-                  {results.contacts.map((contact, idx) => (
-                    <li 
+          {totalItems > 0 ? (
+            <div className="max-h-80 overflow-y-auto py-2">
+              {/* Contacts section */}
+              {results.contacts.length > 0 && (
+                <div>
+                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Contacts
+                  </div>
+                  {results.contacts.map((contact, index) => (
+                    <div
                       key={contact.id}
-                      className={`px-4 py-2 cursor-pointer transition-colors ${
-                        activeSection === 'contacts' && idx === selectedIndex 
-                          ? 'bg-blue-50 text-blue-700' 
-                          : 'hover:bg-gray-50'
-                      }`}
-                      onClick={() => {
-                        onContactSelect(contact);
-                        setIsOpen(false);
-                      }}
-                      onMouseEnter={() => {
-                        setActiveSection('contacts');
-                        setSelectedIndex(idx);
-                      }}
+                      className={`px-4 py-2 hover:bg-gray-100 cursor-pointer ${selectedItemIndex === index ? 'bg-gray-100' : ''}`}
+                      onClick={() => handleSelectItem(index)}
                     >
-                      <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 rounded-full h-8 w-8 bg-gray-200 flex items-center justify-center text-gray-600">
-                          {contact.first_name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{contact.first_name} {contact.last_name}</p>
-                          <p className="text-sm text-gray-500 line-clamp-1">{formatAddress(contact)}</p>
-                        </div>
+                      <div className="font-medium">
+                        {contact.first_name} {contact.last_name}
+                        {contact.account_name && <span className="ml-2 text-sm text-gray-600">• {contact.account_name}</span>}
                       </div>
-                    </li>
+                      <div className="text-sm text-gray-600">
+                        {formatAddress(contact)}
+                      </div>
+                    </div>
                   ))}
-                </ul>
-              </div>
-            )}
-            
-            {/* Cities section */}
-            {results.cities.length > 0 && (
-              <div>
-                <div className="px-4 py-1">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cities</h3>
                 </div>
-                <ul>
-                  {results.cities.map((city, idx) => (
-                    <li 
+              )}
+
+              {/* Cities/Locations section */}
+              {results.cities.length > 0 && (
+                <div>
+                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    {searchMode === 'global' ? 'Search Locations' : 'Cities'}
+                  </div>
+                  {results.cities.map((city, index) => (
+                    <div
                       key={city}
-                      className={`px-4 py-2 cursor-pointer transition-colors ${
-                        activeSection === 'cities' && idx === selectedIndex 
-                          ? 'bg-blue-50 text-blue-700' 
-                          : 'hover:bg-gray-50'
+                      className={`px-4 py-2 hover:bg-gray-100 cursor-pointer ${
+                        selectedItemIndex === (results.contacts.length + index) ? 'bg-gray-100' : ''
                       }`}
-                      onClick={() => {
-                        onCitySelect(city);
-                        setIsOpen(false);
-                      }}
-                      onMouseEnter={() => {
-                        setActiveSection('cities');
-                        setSelectedIndex(idx);
-                      }}
+                      onClick={() => handleSelectItem(results.contacts.length + index)}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="flex-shrink-0 rounded-full h-8 w-8 bg-blue-100 flex items-center justify-center text-blue-600">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                          </svg>
-                        </div>
-                        <span className="font-medium text-gray-900">{city}</span>
+                      <div className="font-medium flex items-center">
+                        {searchMode === 'global' ? '🌎' : '📍'} {city}
+                        {searchMode === 'global' && (
+                          <span className="ml-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+                            Global Search
+                          </span>
+                        )}
                       </div>
-                    </li>
+                    </div>
                   ))}
-                </ul>
-              </div>
-            )}
-            
-            {/* States section */}
-            {results.states.length > 0 && (
-              <div>
-                <div className="px-4 py-1">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">States</h3>
                 </div>
-                <ul>
-                  {results.states.map((state, idx) => (
-                    <li 
-                      key={state}
-                      className={`px-4 py-2 cursor-pointer transition-colors ${
-                        activeSection === 'states' && idx === selectedIndex 
-                          ? 'bg-blue-50 text-blue-700' 
-                          : 'hover:bg-gray-50'
-                      }`}
-                      onClick={() => {
-                        onCitySelect(state);
-                        setIsOpen(false);
-                      }}
-                      onMouseEnter={() => {
-                        setActiveSection('states');
-                        setSelectedIndex(idx);
-                      }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex-shrink-0 rounded-full h-8 w-8 bg-indigo-100 flex items-center justify-center text-indigo-600">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
-                          </svg>
-                        </div>
-                        <span className="font-medium text-gray-900">{state}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-          
-          {/* Footer with search commands */}
-          {(results.contacts.length > 0 || results.cities.length > 0 || results.states.length > 0) && (
-            <div className="px-4 py-3 border-t border-gray-200 text-xs text-gray-500">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1">
-                    <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-gray-500">↑</kbd>
-                    <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-gray-500">↓</kbd>
-                    <span>to navigate</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-gray-500">Enter</kbd>
-                    <span>to select</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-gray-500">Esc</kbd>
-                  <span>to close</span>
-                </div>
-              </div>
+              )}
             </div>
-          )}
+          ) : searchTerm.length > 0 ? (
+            <div className="p-6 text-center text-gray-500">
+              <p>No results found{searchMode === 'local' ? '. Try global search?' : ''}</p>
+              {searchMode === 'local' && (
+                <button 
+                  onClick={toggleSearchMode}
+                  className="mt-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-md text-sm"
+                >
+                  🌎 Switch to Global Search
+                </button>
+              )}
+            </div>
+          ) : null}
+
+          {/* Footer */}
+          <div className="border-t border-gray-200 px-4 py-2 text-xs text-gray-500 flex justify-between items-center">
+            <div>
+              <span className="inline-flex items-center mr-3">
+                <kbd className="px-1 bg-gray-100 rounded mr-1">↑</kbd>
+                <kbd className="px-1 bg-gray-100 rounded mr-1">↓</kbd>
+                to navigate
+              </span>
+              <span className="inline-flex items-center mr-3">
+                <kbd className="px-1 bg-gray-100 rounded mr-1">Enter</kbd>
+                to select
+              </span>
+              <span className="inline-flex items-center">
+                <kbd className="px-1 bg-gray-100 rounded mr-1">Tab</kbd>
+                to toggle search mode
+              </span>
+            </div>
+            <div>
+              <kbd className="px-1 bg-gray-100 rounded mr-1">Esc</kbd>
+              to close
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  );
+  ) : null;
 } 

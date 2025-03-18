@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
     // Get the city from the query parameters
     const searchParams = request.nextUrl.searchParams;
     const city = searchParams.get('city');
+    const global = searchParams.get('global') === 'true';
     
     if (!city) {
       return NextResponse.json(
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     const isState = US_STATES.includes(city);
     
     // Log the request
-    console.log(`API route: Geocoding request for ${isState ? 'state' : 'city'} "${city}"`);
+    console.log(`API route: Geocoding request for ${isState ? 'state' : 'city'} "${city}" ${global ? '(global search)' : ''}`);
     
     // Build the Mapbox Geocoding API URL
     const encodedCity = encodeURIComponent(city);
@@ -44,9 +45,12 @@ export async function GET(request: NextRequest) {
     // Use different types parameter for states vs cities
     const types = isState ? 'region' : 'place,locality,region';
     
-    const geocodingUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedCity}.json?access_token=${MAPBOX_ACCESS_TOKEN}&types=${types}&country=us,ca,gb,de,fr&limit=1&fuzzyMatch=true`;
+    // Only include country filter if not doing a global search
+    const countryFilter = global ? '' : '&country=us,ca,gb,de,fr';
     
-    console.log(`API route: Using geocoding URL with types=${types}`);
+    const geocodingUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedCity}.json?access_token=${MAPBOX_ACCESS_TOKEN}&types=${types}${countryFilter}&limit=1&fuzzyMatch=true`;
+    
+    console.log(`API route: Using geocoding URL with types=${types} ${global ? '(global search)' : ''}`);
     
     // Make the request to Mapbox
     const response = await fetch(geocodingUrl);
@@ -63,8 +67,27 @@ export async function GET(request: NextRequest) {
     // Get the response data
     const data = await response.json();
     
+    // If we didn't find results and it's not already a global search, try again with global search
+    if ((!data.features || data.features.length === 0) && !global) {
+      console.log(`No results found with country filter, trying global search for "${city}"`);
+      
+      // Recursive call with global=true
+      const globalSearchParams = new URLSearchParams(searchParams);
+      globalSearchParams.set('global', 'true');
+      
+      // Create a new request with modified searchParams
+      const globalRequest = new NextRequest(
+        new URL(`?${globalSearchParams.toString()}`, request.url),
+        request
+      );
+      
+      // Call this function again with the modified request
+      return GET(globalRequest);
+    }
+    
     // Store whether this was a state query in the response
     data.isState = isState;
+    data.global = global;
     
     // Return the response
     return NextResponse.json(data);

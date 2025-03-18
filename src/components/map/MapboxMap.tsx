@@ -50,19 +50,94 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
     timestamp: number;
   } | null>(null);
   const lastGeocodedCity = useRef<string | null>(null);
+  const [flyingTo, setFlyingTo] = useState<string | null>(null);
+  const [mapStatus, setMapStatus] = useState({
+    lastLocation: '',
+    lastCoordinates: [0, 0],
+    message: ''
+  });
 
   // Filter valid contacts that have coordinates
   const validContacts = contacts.filter(
     (contact) => contact.latitude && contact.longitude
   );
 
-  // Geocode a city name and return coordinates
-  const geocodeCity = async (city: string): Promise<[number, number] | null> => {
+  // Geocode a city and fly to it
+  const geocodeAndFlyToCity = async (cityInput: string): Promise<void> => {
+    if (!cityInput || !cityInput.trim()) {
+      console.log('📍 No city name provided to geocode');
+      return;
+    }
+    
+    const city = cityInput.trim();
+    console.log(`🔎 Geocoding and flying to: "${city}"`);
+    
+    // Show loading state
+    setFlyingTo(city);
+    
     try {
-      console.log(`🔍 Starting geocoding for ${US_STATES.includes(city) ? 'state' : 'city'}: "${city}"`);
+      // First try with default country filter
+      const coordinates = await geocodeCity(city);
+      
+      if (coordinates) {
+        console.log(`✈️ Flying to "${city}" at coordinates:`, coordinates);
+        
+        // Add marker for the city
+        if (map.current) {
+          addCityMarker(city, coordinates);
+          
+          // Fly to the coordinates
+          map.current.flyTo({
+            center: coordinates,
+            zoom: isStateOrProvince(city) ? 5 : 11,
+            essential: true,
+            speed: 0.8,
+            curve: 1.2,
+          });
+          
+          setMapStatus({
+            ...mapStatus,
+            lastLocation: city,
+            lastCoordinates: coordinates,
+            message: `Now viewing ${isStateOrProvince(city) ? 'state' : 'city'}: ${formatLocationName(city)}`
+          });
+          
+          setFlyingTo(null);
+          
+          return;
+        } else {
+          console.warn('⚠️ Map not initialized, cannot fly to coordinates');
+          setMapStatus({
+            ...mapStatus,
+            message: '⚠️ Map not initialized, try refreshing the page'
+          });
+        }
+      } else {
+        console.error(`❌ Failed to geocode "${city}"`);
+        setMapStatus({
+          ...mapStatus,
+          message: `⚠️ Could not find location: "${city}"`
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error geocoding and flying to city:', error);
+      setMapStatus({
+        ...mapStatus,
+        message: `⚠️ Error finding location: ${error instanceof Error ? error.message : 'Unknown error'}`
+      });
+    }
+    
+    // Clear loading state if there was an error
+    setFlyingTo(null);
+  };
+
+  // Geocode a city name and return coordinates
+  const geocodeCity = async (city: string, tryGlobal = false): Promise<[number, number] | null> => {
+    try {
+      console.log(`🔍 Starting geocoding for ${US_STATES.includes(city) ? 'state' : 'city'}: "${city}"${tryGlobal ? ' (global search)' : ''}`);
       setIsGeocoding(true);
       setDebugInfo({
-        action: `Geocoding "${city}"`,
+        action: `Geocoding "${city}"${tryGlobal ? ' (global)' : ''}`,
         success: true,
         timestamp: Date.now()
       });
@@ -74,8 +149,11 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       const isState = US_STATES.includes(city);
       const types = isState ? 'region' : 'place,locality,region';
       
+      // Only include country filter if not doing a global search
+      const countryFilter = tryGlobal ? '' : '&country=us,ca,gb,de,fr';
+      
       // Create the direct Mapbox API URL
-      const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedCity}.json?access_token=${MAPBOX_ACCESS_TOKEN}&types=${types}&country=us,ca,gb,de,fr&limit=1&fuzzyMatch=true`;
+      const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedCity}.json?access_token=${MAPBOX_ACCESS_TOKEN}&types=${types}${countryFilter}&limit=1&fuzzyMatch=true`;
       console.log(`📡 Geocoding API URL with types=${types}: ${mapboxUrl.replace(MAPBOX_ACCESS_TOKEN, 'HIDDEN_TOKEN')}`);
       
       try {
@@ -95,12 +173,18 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
             
             setDebugInfo({
               action: `Successfully geocoded "${city}"`,
-              data: { placeName, coordinates, method: 'direct', isState },
+              data: { placeName, coordinates, method: 'direct', isState, global: tryGlobal },
               success: true,
               timestamp: Date.now()
             });
             
             return [coordinates[0], coordinates[1]];
+          } 
+          
+          // If no results and not already trying a global search, try again globally
+          if ((!data.features || data.features.length === 0) && !tryGlobal) {
+            console.log(`❌ No results found with country filter, trying global search for "${city}"`);
+            return geocodeCity(city, true);
           }
         } else {
           console.warn(`⚠️ Direct API call failed with status ${directResponse.status}, trying Next.js API route fallback`);
@@ -112,12 +196,13 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       
       // Create a local API route URL as fallback (this will handle CORS issues)
       // This assumes you've created an API route in Next.js that proxies to Mapbox
-      const localApiUrl = `/api/geocode?city=${encodedCity}`;
+      const globalParam = tryGlobal ? '&global=true' : '';
+      const localApiUrl = `/api/geocode?city=${encodedCity}${globalParam}`;
       console.log(`🔄 Trying API route fallback: ${localApiUrl}`);
       
       setDebugInfo({
         action: `Trying fallback method for "${city}"`,
-        data: { url: localApiUrl, isState },
+        data: { url: localApiUrl, isState, global: tryGlobal },
         success: true,
         timestamp: Date.now()
       });
@@ -149,7 +234,7 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
         
         setDebugInfo({
           action: `Successfully geocoded "${city}"`,
-          data: { placeName, coordinates, method: 'fallback', isState: data.isState },
+          data: { placeName, coordinates, method: 'fallback', isState: data.isState, global: data.global },
           success: true,
           timestamp: Date.now()
         });
@@ -157,12 +242,20 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
         return [coordinates[0], coordinates[1]];
       }
       
-      console.warn(`⚠️ No geocoding results found for: "${city}"`);
+      console.warn(`⚠️ No geocoding results found for: "${city}"${tryGlobal ? ' (even with global search)' : ''}`);
+      
       setDebugInfo({
-        action: `No results for "${city}"`,
+        action: `No results for "${city}"${tryGlobal ? ' (global)' : ''}`,
         success: false,
         timestamp: Date.now()
       });
+      
+      // If we haven't tried global search yet, try again with global search
+      if (!tryGlobal) {
+        console.log(`🌎 Attempting global search for "${city}"`);
+        return geocodeCity(city, true);
+      }
+      
       return null;
     } catch (err) {
       console.error('❌ Error geocoding city:', err);
@@ -231,128 +324,6 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
     geocodeAndFlyToCity(selectedCity);
   }, [mounted, selectedCity]);
   
-  // Function to geocode a city or state and fly to it
-  const geocodeAndFlyToCity = async (city: string) => {
-    if (!map.current) return;
-    
-    // Clear any existing timers to prevent overlapping operations
-    if (window.geocodeTimer) {
-      clearTimeout(window.geocodeTimer);
-    }
-    
-    // Skip if we've already geocoded this city/state recently and haven't changed selection
-    if (lastGeocodedCity.current === city) return;
-    
-    // Store the city/state we're geocoding
-    lastGeocodedCity.current = city;
-    
-    // Show loading indicator
-    setIsGeocoding(true);
-    
-    // Check if this is a state abbreviation or full state name
-    const isState = US_STATES.includes(city);
-    
-    // Log what we're trying to geocode
-    console.log(`🔍 Geocoding ${isState ? 'state' : 'city'}: "${city}"`);
-    
-    // Geocode the city or state
-    const coordinates = await geocodeCity(city);
-    if (!coordinates) {
-      console.error(`Failed to geocode: "${city}"`);
-      setDebugInfo({
-        action: `Failed to geocode "${city}"`,
-        success: false,
-        timestamp: Date.now()
-      });
-      setIsGeocoding(false);
-      return;
-    }
-    
-    // Save the current coordinates for persistence
-    const geocodedCoordinates: [number, number] = [coordinates[0], coordinates[1]];
-    
-    // Clean up existing city/state markers
-    markers.current = markers.current.filter(marker => {
-      const el = marker.getElement();
-      if (el.classList.contains('city-marker')) {
-        marker.remove();
-        return false;
-      }
-      return true;
-    });
-    
-    // Add a marker for the city/state
-    const el = document.createElement('div');
-    el.className = 'city-marker';
-    el.style.backgroundColor = isState ? '#10B981' : '#8B5CF6'; // Green for states, purple for cities
-    el.style.width = isState ? '18px' : '14px';
-    el.style.height = isState ? '18px' : '14px';
-    el.style.borderRadius = '50%';
-    el.style.border = '3px solid white';
-    el.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
-    el.style.zIndex = '5';
-    
-    // Create and add the marker
-    const marker = new mapboxgl.Marker(el)
-      .setLngLat(geocodedCoordinates as mapboxgl.LngLatLike)
-      .addTo(map.current);
-    
-    // Add to markers array
-    markers.current.push(marker);
-    
-    // Determine appropriate zoom level based on whether it's a city or state
-    const zoomLevel = isState ? 5.5 : 10;
-    
-    // Fly to the coordinates
-    map.current.flyTo({
-      center: geocodedCoordinates as mapboxgl.LngLatLike,
-      zoom: zoomLevel,
-      essential: true,
-      duration: 2000 // 2 seconds animation
-    });
-    
-    console.log(`✈️ Flying to ${isState ? 'state' : 'city'} "${city}" at coordinates:`, geocodedCoordinates, `with zoom level ${zoomLevel}`);
-    
-    // Mark geocoding as done
-    setIsGeocoding(false);
-    
-    setDebugInfo({
-      action: `Flew to "${city}"`,
-      data: { coordinates: geocodedCoordinates, zoom: zoomLevel, isState },
-      success: true,
-      timestamp: Date.now()
-    });
-    
-    // After flying to this location, update visible contacts
-    // Wait for the animation to complete
-    window.geocodeTimer = setTimeout(() => {
-      if (map.current) {
-        updateVisibleContacts();
-        
-        // Double-check to ensure we're still at the correct coordinates
-        // This helps prevent the issue where the map reverts to default center
-        const currentCenter = map.current.getCenter();
-        const currentLng = currentCenter.lng;
-        const currentLat = currentCenter.lat;
-        
-        // If we've moved more than a small threshold, move back to the geocoded location
-        const tolerance = 0.1; // Degree threshold
-        if (
-          Math.abs(currentLng - geocodedCoordinates[0]) > tolerance || 
-          Math.abs(currentLat - geocodedCoordinates[1]) > tolerance
-        ) {
-          console.log(`🚨 Map center shifted unexpectedly. Restoring to geocoded location.`);
-          map.current.flyTo({
-            center: geocodedCoordinates as mapboxgl.LngLatLike,
-            zoom: zoomLevel,
-            essential: true,
-            duration: 1000
-          });
-        }
-      }
-    }, 2500);
-  };
-
   // Function to initialize the map
   const initializeMap = () => {
     if (!mapContainer.current) {
@@ -697,6 +668,102 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
   // Function to dismiss debug panel
   const dismissDebug = () => {
     setDebugInfo(null);
+  };
+
+  // Check if the input is a state or province
+  const isStateOrProvince = (location: string): boolean => {
+    return US_STATES.includes(location);
+  };
+
+  // Format a location name for display
+  const formatLocationName = (location: string): string => {
+    // If it's a two-letter state code, convert to title case
+    if (location.length === 2 && US_STATES.includes(location.toUpperCase())) {
+      // Return the state name for 2-letter codes
+      const stateMap: {[key: string]: string} = {
+        'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas',
+        'CA': 'California', 'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware',
+        'FL': 'Florida', 'GA': 'Georgia', 'HI': 'Hawaii', 'ID': 'Idaho',
+        'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa', 'KS': 'Kansas',
+        'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+        'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi',
+        'MO': 'Missouri', 'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada',
+        'NH': 'New Hampshire', 'NJ': 'New Jersey', 'NM': 'New Mexico', 'NY': 'New York',
+        'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio', 'OK': 'Oklahoma',
+        'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+        'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah',
+        'VT': 'Vermont', 'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia',
+        'WI': 'Wisconsin', 'WY': 'Wyoming'
+      };
+      return stateMap[location.toUpperCase()] || location.toUpperCase();
+    }
+    
+    // For other locations, capitalize first letter of each word
+    return location
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  };
+
+  // Add a marker for a city or state
+  const addCityMarker = (city: string, coordinates: [number, number]): mapboxgl.Marker | null => {
+    if (!map.current) return null;
+    
+    // Remove any existing city markers
+    markers.current = markers.current.filter(marker => {
+      const el = marker.getElement();
+      if (el.classList.contains('city-marker')) {
+        marker.remove();
+        return false;
+      }
+      return true;
+    });
+    
+    // Create marker element
+    const el = document.createElement('div');
+    el.className = 'city-marker';
+    
+    // Style based on whether it's a state or city
+    const isState = isStateOrProvince(city);
+    el.style.backgroundColor = isState ? '#10B981' : '#8B5CF6'; // Green for states, purple for cities
+    el.style.width = isState ? '18px' : '14px';
+    el.style.height = isState ? '18px' : '14px';
+    el.style.borderRadius = '50%';
+    el.style.border = '3px solid white';
+    el.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
+    el.style.zIndex = '5';
+    
+    // Create popup for the marker
+    const popup = new mapboxgl.Popup({
+      offset: 25,
+      closeButton: true,
+      closeOnClick: true,
+      maxWidth: '300px',
+      className: 'custom-popup'
+    }).setHTML(`
+      <div class="p-4" style="background-color: rgba(255, 255, 255, 0.95);">
+        <h3 class="font-bold text-lg mb-1" style="color: #1F2937; text-shadow: 0 0 1px rgba(255,255,255,0.5);">
+          ${formatLocationName(city)}
+        </h3>
+        <p class="text-sm" style="color: #111827; font-weight: 500;">
+          ${isState ? 'State' : 'City'} location
+        </p>
+      </div>
+    `);
+    
+    // Create and add the marker
+    const marker = new mapboxgl.Marker(el)
+      .setLngLat(coordinates as mapboxgl.LngLatLike)
+      .setPopup(popup)
+      .addTo(map.current);
+    
+    // Open the popup by default
+    marker.togglePopup();
+    
+    // Add to markers array
+    markers.current.push(marker);
+    
+    return marker;
   };
 
   if (!mounted) {
