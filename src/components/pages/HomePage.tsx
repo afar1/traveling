@@ -13,6 +13,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCity, setSelectedCity] = useState<string>('');
   const [showSidebar, setShowSidebar] = useState(true);
+  const [showMap, setShowMap] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [visibleContacts, setVisibleContacts] = useState<Contact[]>([]);
