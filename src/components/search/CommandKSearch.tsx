@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Contact } from '@/types/supabase';
 
 interface CommandKSearchProps {
@@ -25,12 +25,14 @@ export default function CommandKSearch({
   const modalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   
-  // Extract unique cities for search
-  const cities = Array.from(new Set(
-    contacts
-      .map((contact) => contact.mailing_city)
-      .filter(Boolean) as string[]
-  )).sort();
+  // Extract unique cities using useMemo to prevent recreation on every render
+  const cities = useMemo(() => {
+    return Array.from(new Set(
+      contacts
+        .map((contact) => contact.mailing_city)
+        .filter(Boolean) as string[]
+    )).sort();
+  }, [contacts]);
   
   // Listen for Command+K to open search
   useEffect(() => {
@@ -161,8 +163,10 @@ export default function CommandKSearch({
         if (selectedIndex >= 0) {
           if (activeSection === 'contacts' && results.contacts[selectedIndex]) {
             onContactSelect(results.contacts[selectedIndex]);
+            setIsOpen(false);
           } else if (activeSection === 'cities' && results.cities[selectedIndex]) {
             onCitySelect(results.cities[selectedIndex]);
+            setIsOpen(false);
           }
         }
       }
