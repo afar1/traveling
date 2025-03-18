@@ -436,6 +436,7 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
         el.style.borderRadius = '50%';
         el.style.border = '3px solid white';
         el.style.boxShadow = '0 0 8px rgba(0,0,0,0.4)';
+        el.style.zIndex = '10'; // Make selected marker appear above others
       } else {
         el.style.backgroundColor = '#3b82f6'; // Lighter blue
         el.style.width = '14px';
@@ -445,8 +446,34 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
         el.style.boxShadow = '0 0 4px rgba(0,0,0,0.2)';
       }
       
-      // Create contact name for popup
-      const contactName = `${contact.first_name || ''} ${contact.last_name || ''}`.trim() || 'Unnamed Contact';
+      // Format contact name correctly for popup
+      const formatName = (name: string) => {
+        return name
+          .split(' ')
+          .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join(' ');
+      };
+      
+      const firstName = contact.first_name || '';
+      const lastName = contact.last_name || '';
+      const formattedFirstName = formatName(firstName);
+      const formattedLastName = formatName(lastName);
+      const contactName = `${formattedFirstName} ${formattedLastName}`.trim() || 'Unnamed Contact';
+      
+      // Format company name
+      let companyName = '';
+      if (contact.account_name) {
+        companyName = contact.account_name
+          .split(' ')
+          .map(word => {
+            // Don't lowercase small words like LLC, Inc, etc.
+            if (['LLC', 'Inc.', 'Inc', 'Ltd', 'Corp', 'Corp.'].includes(word)) {
+              return word;
+            }
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+          })
+          .join(' ');
+      }
       
       // Create address string for popup
       const addressParts = [];
@@ -458,10 +485,11 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       
       // Create popup content
       const popupContent = `
-        <div class="p-3">
-          <h3 class="font-bold text-lg mb-1">${contactName}</h3>
-          ${contact.account_name ? `<p class="text-sm text-gray-600 mb-2">${contact.account_name}</p>` : ''}
-          <p class="text-sm">${address}</p>
+        <div class="p-4" style="background-color: rgba(255, 255, 255, 0.95);">
+          <h3 class="font-bold text-lg mb-1" style="color: #1F2937; text-shadow: 0 0 1px rgba(255,255,255,0.5);">${contactName}</h3>
+          ${contact.title ? `<p class="text-sm mb-1" style="color: #4B5563; font-weight: 500;">${contact.title}</p>` : ''}
+          ${companyName ? `<p class="text-sm font-medium mb-3" style="color: #4338CA;">${companyName}</p>` : ''}
+          <p class="text-sm" style="color: #111827; font-weight: 500;">${address}</p>
         </div>
       `;
       
@@ -469,15 +497,44 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       const popup = new mapboxgl.Popup({
         offset: 25,
         closeButton: true,
-        closeOnClick: false,
-        maxWidth: '300px',
+        closeOnClick: true,
+        maxWidth: '320px',
+        className: 'custom-popup'
       }).setHTML(popupContent);
+      
+      // Add event listener to close all other popups when this one opens
+      popup.on('open', () => {
+        // Close all other popups
+        markers.current.forEach(m => {
+          try {
+            if (m !== marker) {
+              const mPopup = m.getPopup();
+              if (mPopup && typeof mPopup.isOpen === 'function' && mPopup.isOpen()) {
+                m.togglePopup();
+              }
+            }
+          } catch (e) {
+            // Ignore errors with popups
+          }
+        });
+      });
       
       // Create and add the marker
       const marker = new mapboxgl.Marker(el)
         .setLngLat([contact.longitude, contact.latitude])
         .setPopup(popup)
         .addTo(mapInstance);
+      
+      // Add click handler to select contact
+      marker.getElement().addEventListener('click', () => {
+        if (onViewportChange) {
+          // Handle contact selection through parent component
+          const visibleContacts = validContacts.filter(c => 
+            c.latitude === contact.latitude && c.longitude === contact.longitude
+          );
+          onViewportChange(visibleContacts);
+        }
+      });
       
       // Auto-open popup for selected contact
       if (isSelected) {
@@ -495,21 +552,40 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       style.textContent = `
         .mapboxgl-popup-content {
           padding: 0 !important;
-          border-radius: 8px !important;
+          border-radius: 10px !important;
           overflow: hidden !important;
-          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2) !important;
+          box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25) !important;
+          border: 1px solid rgba(255, 255, 255, 0.8) !important;
         }
         .mapboxgl-popup-close-button {
-          font-size: 16px !important;
-          color: #4B5563 !important;
+          font-size: 18px !important;
+          color: #374151 !important;
           padding: 5px 8px !important;
           right: 2px !important;
           top: 2px !important;
           z-index: 10 !important;
+          background-color: rgba(255, 255, 255, 0.6) !important;
+          border-radius: 50% !important;
+          width: 26px !important;
+          height: 26px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          line-height: 1 !important;
         }
         .mapboxgl-popup-close-button:hover {
-          background-color: rgba(0, 0, 0, 0.05) !important;
-          color: #000 !important;
+          background-color: rgba(255, 255, 255, 0.9) !important;
+          color: #111827 !important;
+        }
+        
+        /* Make sure text in popups is crisp and readable */
+        .mapboxgl-popup {
+          z-index: 999 !important;
+        }
+        
+        .custom-popup .mapboxgl-popup-content {
+          backdrop-filter: blur(5px) !important;
+          -webkit-backdrop-filter: blur(5px) !important;
         }
         
         /* Toast animation */
@@ -534,6 +610,18 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
   // Fly to selectedContact when it changes
   useEffect(() => {
     if (!map.current || !selectedContact?.longitude || !selectedContact?.latitude) return;
+    
+    // Clear all open popups first
+    markers.current.forEach(marker => {
+      try {
+        const popup = marker.getPopup();
+        if (popup && typeof popup.isOpen === 'function' && popup.isOpen()) {
+          marker.togglePopup();
+        }
+      } catch (e) {
+        // Ignore errors with popups
+      }
+    });
     
     // Find the marker for this contact and open its popup
     const contactMarker = markers.current.find(marker => {

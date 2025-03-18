@@ -55,7 +55,21 @@ export default function ContactsList({
 
   // Get contact full name
   const getFullName = (contact: Contact) => {
-    return `${contact.first_name} ${contact.last_name}`;
+    const firstName = contact.first_name || '';
+    const lastName = contact.last_name || '';
+    
+    // Format the name properly with correct capitalization
+    const formatName = (name: string) => {
+      return name
+        .split(' ')
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
+    };
+    
+    const formattedFirstName = formatName(firstName);
+    const formattedLastName = formatName(lastName);
+    
+    return `${formattedFirstName} ${formattedLastName}`.trim() || 'Unnamed Contact';
   };
 
   // Format address
@@ -72,6 +86,23 @@ export default function ContactsList({
       parts.push(contact.mailing_country);
     }
     return parts.join(', ');
+  };
+
+  // Format company name
+  const getCompanyName = (contact: Contact) => {
+    if (!contact.account_name) return '';
+    
+    // Properly format company name with correct capitalization
+    return contact.account_name
+      .split(' ')
+      .map(word => {
+        // Don't lowercase small words like LLC, Inc, etc.
+        if (['LLC', 'Inc.', 'Inc', 'Ltd', 'Corp', 'Corp.'].includes(word)) {
+          return word;
+        }
+        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+      })
+      .join(' ');
   };
 
   // Check if a contact is visible in the current viewport
@@ -225,8 +256,16 @@ export default function ContactsList({
                     <div className="flex-grow">
                       <div className="text-lg font-semibold text-gray-900">{getFullName(contact)}</div>
                       <div className="text-base text-gray-700 mt-1">
-                        {contact.title && <span className="mr-1">{contact.title},</span>}
-                        {contact.account_name}
+                        {contact.title && 
+                          <div className="text-sm text-gray-600">
+                            {contact.title}
+                          </div>
+                        }
+                        {contact.account_name && 
+                          <div className="font-medium text-indigo-700">
+                            {getCompanyName(contact)}
+                          </div>
+                        }
                       </div>
                       <div className="text-sm text-gray-600 mt-2 truncate" title={formatAddress(contact)}>
                         {formatAddress(contact)}

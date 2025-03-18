@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Contact } from '@/types/supabase';
-import { findNearbyCities, getGeocodedLocation, GeocodedLocation, CITY_PROXIMITY_RADIUS } from '@/utils/geo';
 
 interface CommandKSearchProps {
   contacts: Contact[];
@@ -20,12 +19,9 @@ export default function CommandKSearch({
   const [results, setResults] = useState<{
     contacts: Contact[];
     cities: string[];
-    searchRadius?: number; // For showing the radius in the UI
-    searchedCity?: string; // The original searched city
   }>({ contacts: [], cities: [] });
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [activeSection, setActiveSection] = useState<'contacts' | 'cities'>('contacts');
-  const [isLoading, setIsLoading] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   
@@ -37,53 +33,6 @@ export default function CommandKSearch({
         .filter(Boolean) as string[]
     )).sort();
   }, [contacts]);
-
-  // Create a map of cities to their geocoded locations for faster lookup
-  const [cityLocations, setCityLocations] = useState<Map<string, GeocodedLocation>>(new Map());
-  
-  // Geocode all cities once when the component mounts
-  useEffect(() => {
-    const geocodeCities = async () => {
-      const locationsMap = new Map<string, GeocodedLocation>();
-      
-      // Only geocode cities that we don't already have
-      const citiesToGeocode = cities.filter(city => !cityLocations.has(city));
-      
-      if (citiesToGeocode.length === 0) return;
-      
-      // Geocode cities in batches to avoid overwhelming the API
-      const batchSize = 5;
-      for (let i = 0; i < citiesToGeocode.length; i += batchSize) {
-        const batch = citiesToGeocode.slice(i, i + batchSize);
-        
-        // Geocode each city in the batch in parallel
-        const results = await Promise.all(
-          batch.map(async (city) => {
-            const location = await getGeocodedLocation(city);
-            return { city, location };
-          })
-        );
-        
-        // Add results to the map
-        results.forEach(({ city, location }) => {
-          if (location) {
-            locationsMap.set(city, location);
-          }
-        });
-      }
-      
-      // Update state with new locations
-      setCityLocations(prevLocations => {
-        const newLocations = new Map(prevLocations);
-        locationsMap.forEach((location, city) => {
-          newLocations.set(city, location);
-        });
-        return newLocations;
-      });
-    };
-    
-    geocodeCities();
-  }, [cities, cityLocations]);
   
   // Listen for Command+K to open search
   useEffect(() => {
@@ -124,118 +73,35 @@ export default function CommandKSearch({
     
     const term = searchTerm.toLowerCase().trim();
     
-    // Function to perform the actual search
-    const performSearch = async () => {
-      setIsLoading(true);
-      
-      try {
-        // First, do a basic text search for cities
-        const directCityMatches = cities
-          .filter(city => city.toLowerCase().includes(term))
-          .slice(0, 3); // Limit to 3 direct matches
-        
-        // If we have a direct match, try to find nearby cities
-        let nearbyCities: string[] = [];
-        let searchedCity: string | undefined;
-        let shouldPerformProximitySearch = false;
-        
-        // Try exact matches first, then partial matches
-        const exactMatch = cities.find(city => city.toLowerCase() === term);
-        const partialMatches = directCityMatches;
-        
-        // Determine which city to use as the center for proximity search
-        const proximityCenter = exactMatch || (partialMatches.length > 0 ? partialMatches[0] : null);
-        
-        if (proximityCenter) {
-          searchedCity = proximityCenter;
-          shouldPerformProximitySearch = true;
-        }
-        // If no direct city matches, try geocoding the search term
-        else if (term.length > 2) {
-          const geocodedTerm = await getGeocodedLocation(term);
-          if (geocodedTerm) {
-            searchedCity = geocodedTerm.city;
-            shouldPerformProximitySearch = true;
-            
-            // Add the geocoded location to our map
-            setCityLocations(prev => {
-              const newMap = new Map(prev);
-              newMap.set(geocodedTerm.city, geocodedTerm);
-              return newMap;
-            });
-          }
-        }
-        
-        // If we found a city to search around, find nearby cities
-        if (shouldPerformProximitySearch && searchedCity) {
-          // Get the geocoded location of the search city
-          const searchCityLocation = cityLocations.get(searchedCity);
-          
-          if (searchCityLocation) {
-            // Convert the cityLocations Map to an array of GeocodedLocation
-            const allLocations: GeocodedLocation[] = Array.from(cityLocations.values());
-            
-            // Find nearby cities
-            nearbyCities = findNearbyCities(searchCityLocation, allLocations);
-          }
-        }
-        
-        // Combine direct matches with nearby cities and remove duplicates
-        const combinedCities = Array.from(new Set([
-          ...directCityMatches,
-          ...nearbyCities
-        ])).slice(0, 6); // Limit to 6 cities total
-        
-        // Search contacts
-        // 1. First include contacts that directly match the search term
-        const directContactMatches = contacts.filter(contact => {
-          const fullName = `${contact.first_name} ${contact.last_name}`.toLowerCase();
-          return fullName.includes(term) || 
-                contact.account_name?.toLowerCase().includes(term);
-        });
-        
-        // 2. Then include contacts from nearby cities
-        const cityContactMatches = contacts.filter(contact => {
-          return combinedCities.some(city => 
-            contact.mailing_city?.toLowerCase() === city.toLowerCase()
-          );
-        });
-        
-        // Combine direct matches with city-based matches and remove duplicates
-        const matchedContacts = Array.from(new Set([
-          ...directContactMatches,
-          ...cityContactMatches
-        ])).slice(0, 10); // Limit to 10 contacts
-        
-        // Update results
-        setResults({ 
-          contacts: matchedContacts, 
-          cities: combinedCities,
-          searchRadius: CITY_PROXIMITY_RADIUS,
-          searchedCity: searchedCity
-        });
-        
-        // Reset selection
-        setSelectedIndex(-1);
-        
-        // Set active section based on which has results
-        if (matchedContacts.length > 0) {
-          setActiveSection('contacts');
-        } else if (combinedCities.length > 0) {
-          setActiveSection('cities');
-        }
-      } catch (error) {
-        console.error('Error performing search:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    // Search contacts
+    const matchedContacts = contacts.filter(contact => {
+      const fullName = `${contact.first_name} ${contact.last_name}`.toLowerCase();
+      return fullName.includes(term) || 
+             contact.account_name?.toLowerCase().includes(term) ||
+             contact.mailing_city?.toLowerCase().includes(term) ||
+             contact.mailing_state?.toLowerCase().includes(term);
+    }).slice(0, 5); // Limit to 5 contacts
     
-    // Debounce the search to avoid making too many requests
-    const timeoutId = setTimeout(performSearch, 300);
+    // Search cities
+    const matchedCities = cities
+      .filter(city => city.toLowerCase().includes(term))
+      .slice(0, 3); // Limit to 3 cities
     
-    return () => clearTimeout(timeoutId);
-  }, [searchTerm, contacts, cities, isOpen, cityLocations]);
+    setResults({ 
+      contacts: matchedContacts, 
+      cities: matchedCities 
+    });
+    
+    // Reset selection
+    setSelectedIndex(-1);
+    
+    // Set active section based on which has results
+    if (matchedContacts.length > 0) {
+      setActiveSection('contacts');
+    } else if (matchedCities.length > 0) {
+      setActiveSection('cities');
+    }
+  }, [searchTerm, contacts, cities, isOpen]);
   
   // Handle keyboard navigation
   useEffect(() => {
@@ -368,44 +234,19 @@ export default function CommandKSearch({
                 autoComplete="off"
               />
               
-              {isLoading ? (
-                <div className="animate-spin h-5 w-5 text-gray-400">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1">
-                  <kbd className="hidden sm:inline-flex h-6 w-6 items-center justify-center rounded border border-gray-200 bg-gray-100 font-sans text-xs text-gray-500">⌘</kbd>
-                  <kbd className="hidden sm:inline-flex h-6 w-6 items-center justify-center rounded border border-gray-200 bg-gray-100 font-sans text-xs text-gray-500">K</kbd>
-                </div>
-              )}
+              <div className="flex items-center gap-1">
+                <kbd className="hidden sm:inline-flex h-6 w-6 items-center justify-center rounded border border-gray-200 bg-gray-100 font-sans text-xs text-gray-500">⌘</kbd>
+                <kbd className="hidden sm:inline-flex h-6 w-6 items-center justify-center rounded border border-gray-200 bg-gray-100 font-sans text-xs text-gray-500">K</kbd>
+              </div>
             </div>
           </div>
           
           {/* Search results */}
           <div className="max-h-[24rem] overflow-y-auto overscroll-contain py-2">
-            {/* Soft search indicator */}
-            {results.searchedCity && results.cities.length > 1 && (
-              <div className="px-4 py-2 bg-blue-50 text-sm">
-                <p className="text-blue-700">
-                  <span className="font-medium">Showing results within {results.searchRadius} miles of {results.searchedCity}</span>
-                </p>
-              </div>
-            )}
-            
-            {/* No results state */}
-            {results.contacts.length === 0 && results.cities.length === 0 && searchTerm && !isLoading && (
+            {results.contacts.length === 0 && results.cities.length === 0 && searchTerm && (
               <div className="px-4 py-10 text-center">
                 <p className="text-gray-500">No results found</p>
                 <p className="text-sm text-gray-400 mt-1">Try searching for something else</p>
-              </div>
-            )}
-            
-            {/* Loading state */}
-            {isLoading && results.contacts.length === 0 && results.cities.length === 0 && (
-              <div className="px-4 py-10 text-center">
-                <p className="text-gray-500">Searching...</p>
               </div>
             )}
             
@@ -480,12 +321,6 @@ export default function CommandKSearch({
                           </svg>
                         </div>
                         <span className="font-medium text-gray-900">{city}</span>
-                        {/* Indication that this city is close to the searched city */}
-                        {results.searchedCity && city !== results.searchedCity && (
-                          <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
-                            Near {results.searchedCity}
-                          </span>
-                        )}
                       </div>
                     </li>
                   ))}
