@@ -12,6 +12,22 @@ const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiYWZhcjAxIiwiYSI6ImNtOGRpcG4zNDIybncycm9i
 // Log token for debugging
 console.log('Mapbox token available:', !!MAPBOX_ACCESS_TOKEN);
 
+// Add US_STATES constant at the top of the file under the imports
+const US_STATES = [
+  'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut', 
+  'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa', 
+  'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan', 
+  'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire', 
+  'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 
+  'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota', 'Tennessee', 
+  'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia', 'Wisconsin', 'Wyoming',
+  // Also include common abbreviations
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA',
+  'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
+  'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT',
+  'VA', 'WA', 'WV', 'WI', 'WY'
+];
+
 interface MapboxMapProps {
   contacts: Contact[];
   selectedCity?: string;
@@ -43,7 +59,7 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
   // Geocode a city name and return coordinates
   const geocodeCity = async (city: string): Promise<[number, number] | null> => {
     try {
-      console.log(`🔍 Starting geocoding for city: "${city}"`);
+      console.log(`🔍 Starting geocoding for ${US_STATES.includes(city) ? 'state' : 'city'}: "${city}"`);
       setIsGeocoding(true);
       setDebugInfo({
         action: `Geocoding "${city}"`,
@@ -54,9 +70,13 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       // Make sure the city name is properly encoded
       const encodedCity = encodeURIComponent(city);
       
+      // Check if this is a state to use the correct types parameter
+      const isState = US_STATES.includes(city);
+      const types = isState ? 'region' : 'place,locality,region';
+      
       // Create the direct Mapbox API URL
-      const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedCity}.json?access_token=${MAPBOX_ACCESS_TOKEN}&types=place,locality,region&country=us,ca,gb,de,fr&limit=1&fuzzyMatch=true`;
-      console.log(`📡 Geocoding API URL: ${mapboxUrl.replace(MAPBOX_ACCESS_TOKEN, 'HIDDEN_TOKEN')}`);
+      const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedCity}.json?access_token=${MAPBOX_ACCESS_TOKEN}&types=${types}&country=us,ca,gb,de,fr&limit=1&fuzzyMatch=true`;
+      console.log(`📡 Geocoding API URL with types=${types}: ${mapboxUrl.replace(MAPBOX_ACCESS_TOKEN, 'HIDDEN_TOKEN')}`);
       
       try {
         // Try direct API call first
@@ -75,7 +95,7 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
             
             setDebugInfo({
               action: `Successfully geocoded "${city}"`,
-              data: { placeName, coordinates, method: 'direct' },
+              data: { placeName, coordinates, method: 'direct', isState },
               success: true,
               timestamp: Date.now()
             });
@@ -97,7 +117,7 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       
       setDebugInfo({
         action: `Trying fallback method for "${city}"`,
-        data: { url: localApiUrl },
+        data: { url: localApiUrl, isState },
         success: true,
         timestamp: Date.now()
       });
@@ -129,7 +149,7 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
         
         setDebugInfo({
           action: `Successfully geocoded "${city}"`,
-          data: { placeName, coordinates, method: 'fallback' },
+          data: { placeName, coordinates, method: 'fallback', isState: data.isState },
           success: true,
           timestamp: Date.now()
         });
@@ -211,23 +231,34 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
     geocodeAndFlyToCity(selectedCity);
   }, [mounted, selectedCity]);
   
-  // Function to geocode a city and fly to it
+  // Function to geocode a city or state and fly to it
   const geocodeAndFlyToCity = async (city: string) => {
     if (!map.current) return;
     
-    // Skip if we've already geocoded this city recently
+    // Clear any existing timers to prevent overlapping operations
+    if (window.geocodeTimer) {
+      clearTimeout(window.geocodeTimer);
+    }
+    
+    // Skip if we've already geocoded this city/state recently and haven't changed selection
     if (lastGeocodedCity.current === city) return;
     
-    // Update the last geocoded city
+    // Store the city/state we're geocoding
     lastGeocodedCity.current = city;
     
     // Show loading indicator
     setIsGeocoding(true);
     
-    // Geocode the city
+    // Check if this is a state abbreviation or full state name
+    const isState = US_STATES.includes(city);
+    
+    // Log what we're trying to geocode
+    console.log(`🔍 Geocoding ${isState ? 'state' : 'city'}: "${city}"`);
+    
+    // Geocode the city or state
     const coordinates = await geocodeCity(city);
     if (!coordinates) {
-      console.error(`Failed to geocode city: ${city}`);
+      console.error(`Failed to geocode: "${city}"`);
       setDebugInfo({
         action: `Failed to geocode "${city}"`,
         success: false,
@@ -237,7 +268,10 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       return;
     }
     
-    // Clean up existing city markers
+    // Save the current coordinates for persistence
+    const geocodedCoordinates: [number, number] = [coordinates[0], coordinates[1]];
+    
+    // Clean up existing city/state markers
     markers.current = markers.current.filter(marker => {
       const el = marker.getElement();
       if (el.classList.contains('city-marker')) {
@@ -247,58 +281,76 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       return true;
     });
     
-    // Add a city marker
+    // Add a marker for the city/state
     const el = document.createElement('div');
     el.className = 'city-marker';
-    el.style.backgroundColor = '#9333ea'; // Purple
-    el.style.width = '24px';
-    el.style.height = '24px';
+    el.style.backgroundColor = isState ? '#10B981' : '#8B5CF6'; // Green for states, purple for cities
+    el.style.width = isState ? '18px' : '14px';
+    el.style.height = isState ? '18px' : '14px';
     el.style.borderRadius = '50%';
     el.style.border = '3px solid white';
-    el.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
-    
-    // Create popup for the city
-    const popup = new mapboxgl.Popup({
-      offset: 25,
-      closeButton: true,
-      closeOnClick: false,
-      maxWidth: '300px',
-    }).setHTML(`
-      <div class="p-3">
-        <h3 class="font-bold text-lg mb-1">${city}</h3>
-        <p class="text-sm text-gray-600">Showing area around ${city}</p>
-      </div>
-    `);
+    el.style.boxShadow = '0 0 10px rgba(0, 0, 0, 0.3)';
+    el.style.zIndex = '5';
     
     // Create and add the marker
-    const cityMarker = new mapboxgl.Marker(el)
-      .setLngLat(coordinates)
-      .setPopup(popup)
+    const marker = new mapboxgl.Marker(el)
+      .setLngLat(geocodedCoordinates as mapboxgl.LngLatLike)
       .addTo(map.current);
     
-    // Store the marker
-    markers.current.push(cityMarker);
+    // Add to markers array
+    markers.current.push(marker);
     
-    // Auto-open the popup
-    cityMarker.togglePopup();
+    // Determine appropriate zoom level based on whether it's a city or state
+    const zoomLevel = isState ? 5.5 : 10;
     
-    // Fly to the city with a consistent zoom level for area view
+    // Fly to the coordinates
     map.current.flyTo({
-      center: coordinates,
-      zoom: 11, // Fixed zoom level for consistent area view
+      center: geocodedCoordinates as mapboxgl.LngLatLike,
+      zoom: zoomLevel,
       essential: true,
-      speed: 1.5,
-      curve: 1.2,
+      duration: 2000 // 2 seconds animation
     });
     
+    console.log(`✈️ Flying to ${isState ? 'state' : 'city'} "${city}" at coordinates:`, geocodedCoordinates, `with zoom level ${zoomLevel}`);
+    
+    // Mark geocoding as done
+    setIsGeocoding(false);
+    
     setDebugInfo({
-      action: `Navigated to "${city}"`,
-      data: { coordinates },
+      action: `Flew to "${city}"`,
+      data: { coordinates: geocodedCoordinates, zoom: zoomLevel, isState },
       success: true,
       timestamp: Date.now()
     });
     
-    setIsGeocoding(false);
+    // After flying to this location, update visible contacts
+    // Wait for the animation to complete
+    window.geocodeTimer = setTimeout(() => {
+      if (map.current) {
+        updateVisibleContacts();
+        
+        // Double-check to ensure we're still at the correct coordinates
+        // This helps prevent the issue where the map reverts to default center
+        const currentCenter = map.current.getCenter();
+        const currentLng = currentCenter.lng;
+        const currentLat = currentCenter.lat;
+        
+        // If we've moved more than a small threshold, move back to the geocoded location
+        const tolerance = 0.1; // Degree threshold
+        if (
+          Math.abs(currentLng - geocodedCoordinates[0]) > tolerance || 
+          Math.abs(currentLat - geocodedCoordinates[1]) > tolerance
+        ) {
+          console.log(`🚨 Map center shifted unexpectedly. Restoring to geocoded location.`);
+          map.current.flyTo({
+            center: geocodedCoordinates as mapboxgl.LngLatLike,
+            zoom: zoomLevel,
+            essential: true,
+            duration: 1000
+          });
+        }
+      }
+    }, 2500);
   };
 
   // Function to initialize the map
@@ -718,4 +770,11 @@ export default function MapboxMap({ contacts, selectedCity, selectedContact, onV
       )}
     </div>
   );
+}
+
+// Add this declaration at the top of the file after the imports
+declare global {
+  interface Window {
+    geocodeTimer?: ReturnType<typeof setTimeout>;
+  }
 } 
